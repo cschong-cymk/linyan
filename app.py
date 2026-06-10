@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import sqlite3
 import subprocess
 import textwrap
@@ -526,6 +527,76 @@ def serialize_job(row):
     }
 
 
+def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits):
+    """Runs in a background thread. Updates job status as it progresses."""
+    db = sqlite3.connect(DB_PATH)
+    db.row_factory = sqlite3.Row
+
+    def set_status(status, output_path=None, output_kind=None, plan_path=None, extra_params=None):
+        updates = ["status = ?", "updated_at = ?"]
+        values = [status, now_iso()]
+        if output_path:
+            updates += ["output_path = ?", "output_kind = ?"]
+            values += [str(output_path), output_kind]
+        if plan_path:
+            updates += ["render_plan_path = ?"]
+            values += [str(plan_path)]
+        values.append(job_id)
+        db.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", values)
+        if extra_params:
+            row = db.execute("SELECT params_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            params = json.loads(row["params_json"])
+            params.update(extra_params)
+            db.execute("UPDATE jobs SET params_json = ? WHERE id = ?", (json.dumps(params), job_id))
+        db.commit()
+
+    try:
+        # Step 1 — planning
+        set_status("planning")
+        planner_payload = call_openrouter_planner(storyboard_text, config)
+        plan_path = OUTPUT_DIR / f"{job_id}-plan.txt"
+        plan_path.write_text(
+            planner_payload["plan_text"] or planner_payload["message"],
+            encoding="utf-8",
+        )
+        set_status("rendering", plan_path=plan_path, extra_params={
+            "planner_status": planner_payload["status"],
+            "planner_message": planner_payload["message"],
+        })
+
+        # Step 2 — render
+        output_kind = "mp4"
+        output_path = OUTPUT_DIR / f"{job_id}.mp4"
+        try:
+            generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            output_kind = "zip"
+            output_path = OUTPUT_DIR / f"{job_id}.zip"
+            generate_placeholder_bundle(output_path, config["title"], job_id, config, storyboard_text, planner_payload)
+
+        # Step 3 — charge credits and mark complete
+        db2 = sqlite3.connect(DB_PATH)
+        db2.row_factory = sqlite3.Row
+        db2.execute(
+            "UPDATE users SET credit_balance = ROUND(credit_balance - ?, 1) WHERE id = ?",
+            (estimated_credits, user_id),
+        )
+        db2.execute(
+            """INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, -round(estimated_credits, 1), "job_charge", f"Charged for job {job_id}", user_id, now_iso()),
+        )
+        db2.commit()
+        db2.close()
+
+        set_status("completed", output_path=output_path, output_kind=output_kind)
+
+    except Exception as exc:
+        set_status("failed", extra_params={"error": str(exc)})
+    finally:
+        db.close()
+
+
 def create_job_record(user_id, original_filename, config, storyboard_text):
     settings = load_settings()
     estimated_credits, provider = estimate_job_cost(config, settings)
@@ -542,33 +613,9 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
     storyboard_path = UPLOAD_DIR / f"{job_id}-{safe_name}.md"
     storyboard_path.write_text(storyboard_text, encoding="utf-8")
 
-    planner_payload = call_openrouter_planner(storyboard_text, config)
-    plan_path = OUTPUT_DIR / f"{job_id}-plan.txt"
-    plan_path.write_text(
-        planner_payload["plan_text"] or planner_payload["message"],
-        encoding="utf-8",
-    )
-
-    output_kind = "mp4"
-    output_path = OUTPUT_DIR / f"{job_id}.mp4"
-    try:
-        generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        output_kind = "zip"
-        output_path = OUTPUT_DIR / f"{job_id}.zip"
-        generate_placeholder_bundle(output_path, config["title"], job_id, config, storyboard_text, planner_payload)
-
-    apply_credit_delta(
-        user_id,
-        -estimated_credits,
-        "job_charge",
-        f"Charged for job {job_id}",
-        actor_user_id=user_id,
-    )
-
-    db = get_db()
+    # Insert job immediately with status "queued"
     timestamp = now_iso()
-    db.execute(
+    get_db().execute(
         """
         INSERT INTO jobs (
             id, user_id, title, status, original_filename, storyboard_path, render_plan_path,
@@ -578,32 +625,24 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            job_id,
-            user_id,
-            config["title"],
-            "completed",
-            original_filename,
-            str(storyboard_path),
-            str(plan_path),
-            str(output_path),
-            output_kind,
-            config["planner_model"],
-            config["video_model"],
-            provider,
-            estimated_credits,
-            json.dumps(
-                {
-                    **config,
-                    "planner_status": planner_payload["status"],
-                    "planner_message": planner_payload["message"],
-                }
-            ),
-            timestamp,
-            timestamp,
+            job_id, user_id, config["title"], "queued", original_filename,
+            str(storyboard_path), None,
+            str(OUTPUT_DIR / f"{job_id}.mp4"), "mp4",
+            config["planner_model"], config["video_model"], provider, estimated_credits,
+            json.dumps(config), timestamp, timestamp,
         ),
     )
-    db.commit()
-    row = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    get_db().commit()
+
+    # Fire background thread
+    t = threading.Thread(
+        target=run_job_async,
+        args=(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits),
+        daemon=True,
+    )
+    t.start()
+
+    row = get_db().execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     return serialize_job(row), None
 
 
@@ -805,6 +844,24 @@ def create_job():
             "user": serialize_user(refreshed),
         }
     )
+
+
+@app.route("/api/jobs/<job_id>/status")
+@login_required
+def job_status(job_id):
+    row = get_db().execute(
+        "SELECT id, status, output_kind, updated_at FROM jobs WHERE id = ? AND user_id = ?",
+        (job_id, g.current_user["id"]),
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "Job not found."}), 404
+    return jsonify({
+        "id": row["id"],
+        "status": row["status"],
+        "output_kind": row["output_kind"],
+        "updated_at": row["updated_at"],
+        "download_url": f"/api/jobs/{row['id']}/download" if row["status"] == "completed" else None,
+    })
 
 
 @app.route("/api/jobs/<job_id>/download")

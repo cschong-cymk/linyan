@@ -399,6 +399,7 @@
     .ff.exposed{background:var(--acc-amber-dim);opacity:0.6;}
 
     @media(max-width:900px){.desk{grid-template-columns:1fr;}}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
   </style>
 </head>
 <body>
@@ -921,7 +922,9 @@
       wrap.innerHTML = state.jobs.map(function(j){
         var d = new Date(j.created_at);
         var dateStr = d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
-        var dotCls = {completed:'ok',running:'run',queued:'run',failed:'err'}[j.status]||'run';
+        var dotCls = {completed:'ok',rendering:'run',planning:'run',queued:'run',failed:'err'}[j.status]||'run';
+        var pulse = (j.status==='queued'||j.status==='planning'||j.status==='rendering') ?
+          'style="animation:pulse 1.2s ease-in-out infinite"' : '';
         return '<div class="journal-entry">'+
           '<span class="je-date">'+dateStr+'</span>'+
           '<div><div class="je-title">'+j.title+'</div>'+
@@ -935,6 +938,47 @@
       }).join('');
     }
 
+    // status labels for each stage
+    var STATUS_LABELS = {
+      queued:    '◌ Queued…',
+      planning:  '◎ Planning shots…',
+      rendering: '◉ Rendering…',
+      completed: '● Render film',
+      failed:    '● Render film'
+    };
+    var STATUS_PROGRESS = { queued:8, planning:35, rendering:75, completed:100, failed:0 };
+
+    async function pollJob(jobId) {
+      var btn = document.getElementById('job-submit');
+      var prog = document.getElementById('film-progress');
+      var txtEl = document.getElementById('render-btn-text');
+      var subEl = document.getElementById('render-btn-sub');
+
+      return new Promise(function(resolve, reject) {
+        var interval = setInterval(async function() {
+          try {
+            var d = await jsonFetch('/api/jobs/'+jobId+'/status', {method:'GET'});
+            var pct = STATUS_PROGRESS[d.status] || 0;
+            prog.style.width = pct+'%';
+            txtEl.textContent = STATUS_LABELS[d.status] || '◉ Rendering…';
+
+            if (d.status === 'completed') {
+              clearInterval(interval);
+              setTimeout(function(){ prog.style.width='0%'; }, 1200);
+              resolve(d);
+            } else if (d.status === 'failed') {
+              clearInterval(interval);
+              prog.style.width='0%';
+              reject(new Error('Render failed. Check your storyboard and try again.'));
+            }
+          } catch(e) {
+            clearInterval(interval);
+            reject(e);
+          }
+        }, 2000); // poll every 2s
+      });
+    }
+
     async function submitJob() {
       clearFlash();
       if (state.inputMode==='text' && !document.getElementById('story-text').value.trim()) {
@@ -946,13 +990,11 @@
       var btn = document.getElementById('job-submit');
       var prog = document.getElementById('film-progress');
       var txtEl = document.getElementById('render-btn-text');
-      btn.disabled = true; txtEl.textContent = '◉ Rendering…';
-      // animate film progress
-      var pct = 0;
-      var ticker = setInterval(function(){
-        pct = Math.min(pct+2, 90);
-        prog.style.width = pct+'%';
-      }, 200);
+      var subEl = document.getElementById('render-btn-sub');
+      btn.disabled = true;
+      txtEl.textContent = '◌ Queuing…';
+      prog.style.width = '5%';
+
       try {
         var fd = new FormData();
         if (state.inputMode==='text') {
@@ -961,21 +1003,34 @@
           fd.append('file', document.getElementById('storyboard-file').files[0]);
         }
         fd.append('config', JSON.stringify(getJobConfig()));
+
+        // Submit — returns immediately with queued job
         var r = await fetch('/api/jobs',{method:'POST',body:fd});
         var d = JSON.parse(await r.text());
         if (!r.ok) throw new Error(d.error||'Job failed.');
-        clearInterval(ticker); prog.style.width='100%';
-        state.session.user = d.user;
-        updateVU(d.user.credit_balance);
+
+        var jobId = d.job.id;
+        await refreshJobs(); // show queued state in journal
+
+        // Poll until done
+        subEl.textContent = 'Job '+jobId+' · polling every 2s';
+        await pollJob(jobId);
+
+        // Refresh everything
+        var sess = await jsonFetch('/api/session',{method:'GET'});
+        state.session = sess;
+        updateVU(sess.user.credit_balance);
         await refreshJobs();
         await refreshQuote();
         showFlash('ok','Render complete — artifact ready in the journal.');
-        setTimeout(function(){ prog.style.width='0%'; },1000);
+
       } catch(err) {
-        clearInterval(ticker); prog.style.width='0%';
+        prog.style.width='0%';
         showFlash('error',err.message);
       } finally {
-        btn.disabled=false; txtEl.textContent='● Render film';
+        btn.disabled=false;
+        txtEl.textContent='● Render film';
+        subEl.textContent='Submit to Flowdaptor · ByteDance models';
       }
     }
 
@@ -984,6 +1039,18 @@
       state.jobs=d.jobs;
       renderJournal();
       updateFilmCounter(state.jobs.length);
+    }
+
+    // auto-refresh journal when jobs are in-flight
+    function startJournalPoller() {
+      setInterval(async function() {
+        var inFlight = state.jobs.some(function(j){
+          return j.status==='queued'||j.status==='planning'||j.status==='rendering';
+        });
+        if (inFlight) {
+          await refreshJobs();
+        }
+      }, 3000);
     }
 
     document.getElementById('logout-btn').addEventListener('click',async function(){
