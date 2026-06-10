@@ -1,0 +1,13 @@
+file '01-cover.png'
+duration 4
+file '02-committed-core.png'
+duration 6
+file '03-demoralized-middle.png'
+duration 7
+file '04-drifting-fringe.png'
+duration 7
+file '05-younger-reformists.png'
+duration 7
+file '06-final-warning.png'
+duration 6
+file '06-final-warning.png'
