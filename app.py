@@ -1,7 +1,6 @@
 import json
 import os
 import threading
-import sqlite3
 import subprocess
 import textwrap
 import uuid
@@ -12,7 +11,9 @@ from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from flask import Flask, g, jsonify, render_template, request, send_file, session
+import psycopg2
+import psycopg2.extras
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -21,15 +22,16 @@ TEMPLATE_DIR = APP_ROOT / "templates"
 DATA_DIR = APP_ROOT / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
-DB_PATH = DATA_DIR / "linyan.db"
-
 DATA_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 APP_SECRET = os.environ.get("LINYAN_SECRET_KEY", "linyan-dev-secret-change-me")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgres://postgres:postgres@localhost:5432/flask"
+)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-OPENROUTER_HTTP_REFERER = os.environ.get("OPENROUTER_HTTP_REFERER", "http://127.0.0.1:5000")
+OPENROUTER_HTTP_REFERER = os.environ.get("OPENROUTER_HTTP_REFERER", "https://linyan.io")
 OPENROUTER_APP_NAME = os.environ.get("OPENROUTER_APP_NAME", "Linyan")
 
 ASPECT_PRESETS = {
@@ -111,10 +113,10 @@ DEFAULT_SETTINGS = {
     "default_video_model": "google/veo-3-fast",
 }
 
+# Linux container font candidates (macOS paths removed)
 DRAW_TEXT_FONTS = [
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-    "/System/Library/Fonts/Supplemental/Helvetica.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
 
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
@@ -126,10 +128,15 @@ def now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def new_connection():
+    """Create a new psycopg2 connection with dict-style rows."""
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    return conn
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        g.db = new_connection()
     return g.db
 
 
@@ -140,29 +147,46 @@ def close_db(_exc):
         db.close()
 
 
+def db_execute(query, params=(), commit=False):
+    """Helper: run a query on the request-scoped connection."""
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(query, params)
+    if commit:
+        db.commit()
+    return cur
+
+
 def init_db():
-    db = sqlite3.connect(DB_PATH)
-    db.executescript(
+    db = new_connection()
+    cur = db.cursor()
+    cur.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             display_name TEXT NOT NULL,
-            is_admin INTEGER NOT NULL DEFAULT 0,
+            is_admin BOOLEAN NOT NULL DEFAULT FALSE,
             credit_balance REAL NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
-
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL REFERENCES users(id),
             title TEXT NOT NULL,
             status TEXT NOT NULL,
             original_filename TEXT NOT NULL,
@@ -176,30 +200,30 @@ def init_db():
             estimated_credits REAL NOT NULL,
             params_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            updated_at TEXT NOT NULL
         );
-
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS credit_ledger (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
             delta REAL NOT NULL,
             reason TEXT NOT NULL,
             note TEXT,
             actor_user_id INTEGER,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            created_at TEXT NOT NULL
         );
         """
     )
-
     timestamp = now_iso()
     for key, value in DEFAULT_SETTINGS.items():
-        db.execute(
+        cur.execute(
             """
             INSERT INTO settings (key, value, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(key) DO NOTHING
+            VALUES (%s, %s, %s)
+            ON CONFLICT (key) DO NOTHING
             """,
             (key, json.dumps(value), timestamp),
         )
@@ -210,12 +234,13 @@ def init_db():
 def decode_setting(raw_value):
     try:
         return json.loads(raw_value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return raw_value
 
 
 def load_settings():
-    rows = get_db().execute("SELECT key, value FROM settings").fetchall()
+    cur = db_execute("SELECT key, value FROM settings")
+    rows = cur.fetchall()
     settings = dict(DEFAULT_SETTINGS)
     for row in rows:
         settings[row["key"]] = decode_setting(row["value"])
@@ -223,30 +248,30 @@ def load_settings():
 
 
 def save_setting(key, value):
-    get_db().execute(
+    db_execute(
         """
         INSERT INTO settings (key, value, updated_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        VALUES (%s, %s, %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
         """,
         (key, json.dumps(value), now_iso()),
+        commit=True,
     )
-    get_db().commit()
 
 
 def current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    row = get_db().execute(
+    cur = db_execute(
         """
         SELECT id, email, display_name, is_admin, credit_balance, created_at
         FROM users
-        WHERE id = ?
+        WHERE id = %s
         """,
         (user_id,),
-    ).fetchone()
-    return row
+    )
+    return cur.fetchone()
 
 
 def login_required(handler):
@@ -288,14 +313,15 @@ def serialize_user(row):
 
 def apply_credit_delta(user_id, delta, reason, note="", actor_user_id=None):
     db = get_db()
-    db.execute(
-        "UPDATE users SET credit_balance = ROUND(credit_balance + ?, 1) WHERE id = ?",
+    cur = db.cursor()
+    cur.execute(
+        "UPDATE users SET credit_balance = ROUND(CAST(credit_balance + %s AS numeric), 1) WHERE id = %s",
         (delta, user_id),
     )
-    db.execute(
+    cur.execute(
         """
         INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
         (user_id, round(delta, 1), reason, note, actor_user_id, now_iso()),
     )
@@ -447,7 +473,6 @@ def call_openrouter_planner(storyboard_text, config):
             "message": "OPENROUTER_API_KEY not configured. Saved local placeholder render only.",
             "plan_text": "",
         }
-
     prompt = textwrap.dedent(
         f"""
         You are a storyboard-to-video planner.
@@ -458,7 +483,6 @@ def call_openrouter_planner(storyboard_text, config):
         3. Scene list
         4. Camera and motion notes
         5. Narration direction
-
         Constraints:
         - Style preset: {config["style_preset"]}
         - Target duration: {config["target_duration"]} seconds
@@ -466,7 +490,6 @@ def call_openrouter_planner(storyboard_text, config):
         - Consistency strength: {config["consistency_strength"]}
         """
     ).strip()
-
     payload = {
         "model": config["planner_model"],
         "temperature": config["planner_temperature"],
@@ -482,14 +505,12 @@ def call_openrouter_planner(storyboard_text, config):
         "HTTP-Referer": OPENROUTER_HTTP_REFERER,
         "X-Title": OPENROUTER_APP_NAME,
     }
-
     req = urllib_request.Request(
         "https://openrouter.ai/api/v1/chat/completions",
         data=body,
         headers=request_headers,
         method="POST",
     )
-
     try:
         with urllib_request.urlopen(req, timeout=30) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -528,30 +549,33 @@ def serialize_job(row):
 
 
 def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits):
-    """Runs in a background thread. Updates job status as it progresses."""
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
+    """Runs in a background thread. Opens its own connection."""
+    db = new_connection()
 
     def set_status(status, output_path=None, output_kind=None, plan_path=None, extra_params=None):
-        updates = ["status = ?", "updated_at = ?"]
+        cur = db.cursor()
+        updates = ["status = %s", "updated_at = %s"]
         values = [status, now_iso()]
         if output_path:
-            updates += ["output_path = ?", "output_kind = ?"]
+            updates += ["output_path = %s", "output_kind = %s"]
             values += [str(output_path), output_kind]
         if plan_path:
-            updates += ["render_plan_path = ?"]
+            updates += ["render_plan_path = %s"]
             values += [str(plan_path)]
         values.append(job_id)
-        db.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", values)
+        cur.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = %s", values)
         if extra_params:
-            row = db.execute("SELECT params_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            cur.execute("SELECT params_json FROM jobs WHERE id = %s", (job_id,))
+            row = cur.fetchone()
             params = json.loads(row["params_json"])
             params.update(extra_params)
-            db.execute("UPDATE jobs SET params_json = ? WHERE id = ?", (json.dumps(params), job_id))
+            cur.execute(
+                "UPDATE jobs SET params_json = %s WHERE id = %s",
+                (json.dumps(params), job_id),
+            )
         db.commit()
 
     try:
-        # Step 1 — planning
         set_status("planning")
         planner_payload = call_openrouter_planner(storyboard_text, config)
         plan_path = OUTPUT_DIR / f"{job_id}-plan.txt"
@@ -559,12 +583,15 @@ def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, est
             planner_payload["plan_text"] or planner_payload["message"],
             encoding="utf-8",
         )
-        set_status("rendering", plan_path=plan_path, extra_params={
-            "planner_status": planner_payload["status"],
-            "planner_message": planner_payload["message"],
-        })
+        set_status(
+            "rendering",
+            plan_path=plan_path,
+            extra_params={
+                "planner_status": planner_payload["status"],
+                "planner_message": planner_payload["message"],
+            },
+        )
 
-        # Step 2 — render
         output_kind = "mp4"
         output_path = OUTPUT_DIR / f"{job_id}.mp4"
         try:
@@ -572,25 +599,23 @@ def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, est
         except (subprocess.CalledProcessError, FileNotFoundError):
             output_kind = "zip"
             output_path = OUTPUT_DIR / f"{job_id}.zip"
-            generate_placeholder_bundle(output_path, config["title"], job_id, config, storyboard_text, planner_payload)
+            generate_placeholder_bundle(
+                output_path, config["title"], job_id, config, storyboard_text, planner_payload
+            )
 
-        # Step 3 — charge credits and mark complete
-        db2 = sqlite3.connect(DB_PATH)
-        db2.row_factory = sqlite3.Row
-        db2.execute(
-            "UPDATE users SET credit_balance = ROUND(credit_balance - ?, 1) WHERE id = ?",
+        cur = db.cursor()
+        cur.execute(
+            "UPDATE users SET credit_balance = ROUND(CAST(credit_balance - %s AS numeric), 1) WHERE id = %s",
             (estimated_credits, user_id),
         )
-        db2.execute(
+        cur.execute(
             """INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s)""",
             (user_id, -round(estimated_credits, 1), "job_charge", f"Charged for job {job_id}", user_id, now_iso()),
         )
-        db2.commit()
-        db2.close()
+        db.commit()
 
         set_status("completed", output_path=output_path, output_kind=output_kind)
-
     except Exception as exc:
         set_status("failed", extra_params={"error": str(exc)})
     finally:
@@ -600,29 +625,28 @@ def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, est
 def create_job_record(user_id, original_filename, config, storyboard_text):
     settings = load_settings()
     estimated_credits, provider = estimate_job_cost(config, settings)
-    user = get_db().execute("SELECT credit_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    cur = db_execute("SELECT credit_balance FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
     if user["credit_balance"] < estimated_credits:
         return None, {
             "error": "Insufficient credits.",
             "needed": estimated_credits,
             "balance": round(user["credit_balance"], 1),
         }
-
     job_id = uuid.uuid4().hex[:12]
     safe_name = secure_filename(Path(original_filename).stem) or "storyboard"
     storyboard_path = UPLOAD_DIR / f"{job_id}-{safe_name}.md"
     storyboard_path.write_text(storyboard_text, encoding="utf-8")
 
-    # Insert job immediately with status "queued"
     timestamp = now_iso()
-    get_db().execute(
+    db_execute(
         """
         INSERT INTO jobs (
             id, user_id, title, status, original_filename, storyboard_path, render_plan_path,
             output_path, output_kind, planner_model, video_model, provider, estimated_credits,
             params_json, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             job_id, user_id, config["title"], "queued", original_filename,
@@ -631,10 +655,9 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
             config["planner_model"], config["video_model"], provider, estimated_credits,
             json.dumps(config), timestamp, timestamp,
         ),
+        commit=True,
     )
-    get_db().commit()
 
-    # Fire background thread
     t = threading.Thread(
         target=run_job_async,
         args=(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits),
@@ -642,7 +665,8 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
     )
     t.start()
 
-    row = get_db().execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    cur = db_execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+    row = cur.fetchone()
     return serialize_job(row), None
 
 
@@ -667,16 +691,17 @@ def settings():
 @app.route("/api/ledger")
 @login_required
 def ledger():
-    rows = get_db().execute(
+    cur = db_execute(
         """
         SELECT delta, reason, note, created_at
         FROM credit_ledger
-        WHERE user_id = ?
+        WHERE user_id = %s
         ORDER BY created_at DESC
         LIMIT 50
         """,
         (g.current_user["id"],),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
     return jsonify({"entries": [dict(r) for r in rows]})
 
 
@@ -706,27 +731,27 @@ def signup():
     settings = load_settings()
     if not settings["allow_signup"]:
         return jsonify({"error": "Signups are disabled by the host."}), 403
-
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip().lower()
     display_name = (payload.get("display_name") or "").strip()
     password = payload.get("password") or ""
-
     if not email or not display_name or len(password) < 8:
         return jsonify({"error": "Display name, email, and an 8+ character password are required."}), 400
-
     db = get_db()
-    existing = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+    cur = db.cursor()
+    cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+    existing = cur.fetchone()
     if existing:
         return jsonify({"error": "Email already registered."}), 409
-
-    user_count = db.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
-    is_admin = 1 if user_count == 0 else 0
+    cur.execute("SELECT COUNT(*) AS count FROM users")
+    user_count = cur.fetchone()["count"]
+    is_admin = user_count == 0
     starting_credits = 500.0 if is_admin else float(settings["signup_bonus_credits"])
-    db.execute(
+    cur.execute(
         """
         INSERT INTO users (email, password_hash, display_name, is_admin, credit_balance, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
         """,
         (
             email,
@@ -737,8 +762,8 @@ def signup():
             now_iso(),
         ),
     )
+    user_id = cur.fetchone()["id"]
     db.commit()
-    user_id = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()["id"]
     apply_credit_delta(
         user_id,
         0,
@@ -755,14 +780,13 @@ def login():
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
-
-    row = get_db().execute(
-        "SELECT id, password_hash FROM users WHERE email = ?",
+    cur = db_execute(
+        "SELECT id, password_hash FROM users WHERE email = %s",
         (email,),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     if not row or not check_password_hash(row["password_hash"], password):
         return jsonify({"error": "Invalid email or password."}), 401
-
     session["user_id"] = row["id"]
     return jsonify({"success": True, "user": serialize_user(current_user())})
 
@@ -791,15 +815,16 @@ def quote_job():
 @app.route("/api/jobs", methods=["GET"])
 @login_required
 def list_jobs():
-    rows = get_db().execute(
+    cur = db_execute(
         """
         SELECT *
         FROM jobs
-        WHERE user_id = ?
+        WHERE user_id = %s
         ORDER BY created_at DESC
         """,
         (g.current_user["id"],),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
     return jsonify({"jobs": [serialize_job(row) for row in rows]})
 
 
@@ -811,22 +836,18 @@ def create_job():
     raw_config = request.form.get("config")
     if not raw_config:
         return jsonify({"error": "Missing config payload."}), 400
-
     storyboard_file = request.files["file"]
     if not storyboard_file.filename.lower().endswith(".md"):
         return jsonify({"error": "Only .md storyboard files are accepted."}), 400
-
     settings = load_settings()
     try:
         config = normalize_config(json.loads(raw_config), settings)
     except json.JSONDecodeError:
         return jsonify({"error": "Config must be valid JSON."}), 400
-
     try:
         storyboard_text = storyboard_file.read().decode("utf-8")
     except UnicodeDecodeError:
         return jsonify({"error": "Storyboard must be UTF-8 markdown."}), 400
-
     job, error_payload = create_job_record(
         g.current_user["id"],
         storyboard_file.filename,
@@ -835,7 +856,6 @@ def create_job():
     )
     if error_payload:
         return jsonify(error_payload), 402
-
     refreshed = current_user()
     return jsonify(
         {
@@ -849,10 +869,11 @@ def create_job():
 @app.route("/api/jobs/<job_id>/status")
 @login_required
 def job_status(job_id):
-    row = get_db().execute(
-        "SELECT id, status, output_kind, updated_at FROM jobs WHERE id = ? AND user_id = ?",
+    cur = db_execute(
+        "SELECT id, status, output_kind, updated_at FROM jobs WHERE id = %s AND user_id = %s",
         (job_id, g.current_user["id"]),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     if not row:
         return jsonify({"error": "Job not found."}), 404
     return jsonify({
@@ -867,17 +888,16 @@ def job_status(job_id):
 @app.route("/api/jobs/<job_id>/download")
 @login_required
 def download_job(job_id):
-    row = get_db().execute(
-        "SELECT * FROM jobs WHERE id = ? AND user_id = ?",
+    cur = db_execute(
+        "SELECT * FROM jobs WHERE id = %s AND user_id = %s",
         (job_id, g.current_user["id"]),
-    ).fetchone()
+    )
+    row = cur.fetchone()
     if not row:
         return jsonify({"error": "Job not found."}), 404
-
     path = Path(row["output_path"])
     if not path.exists():
         return jsonify({"error": "Artifact missing on disk."}), 404
-
     download_name = f"{secure_filename(row['title']) or 'linyan-render'}.{row['output_kind']}"
     return send_file(path, as_attachment=True, download_name=download_name)
 
@@ -885,8 +905,7 @@ def download_job(job_id):
 @app.route("/api/admin/overview")
 @admin_required
 def admin_overview():
-    db = get_db()
-    users = db.execute(
+    cur = db_execute(
         """
         SELECT u.id, u.display_name, u.email, u.is_admin, u.credit_balance, u.created_at,
                COUNT(j.id) AS job_count
@@ -895,9 +914,10 @@ def admin_overview():
         GROUP BY u.id
         ORDER BY u.created_at ASC
         """
-    ).fetchall()
+    )
+    users = cur.fetchall()
     settings = load_settings()
-    recent_jobs = db.execute(
+    cur = db_execute(
         """
         SELECT j.*, u.display_name
         FROM jobs j
@@ -905,7 +925,8 @@ def admin_overview():
         ORDER BY j.created_at DESC
         LIMIT 12
         """
-    ).fetchall()
+    )
+    recent_jobs = cur.fetchall()
     return jsonify(
         {
             "users": [
@@ -950,13 +971,10 @@ def admin_topup():
     user_id = payload.get("user_id")
     delta = clamp_float(payload.get("delta"), 0.0, -10000.0, 10000.0)
     note = (payload.get("note") or "").strip() or "Admin adjustment"
-    target = get_db().execute(
-        "SELECT id FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
+    cur = db_execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    target = cur.fetchone()
     if not target:
         return jsonify({"error": "Target user not found."}), 404
-
     apply_credit_delta(
         target["id"],
         delta,
@@ -964,10 +982,11 @@ def admin_topup():
         note,
         actor_user_id=g.current_user["id"],
     )
-    updated = get_db().execute(
-        "SELECT id, email, display_name, is_admin, credit_balance, created_at FROM users WHERE id = ?",
+    cur = db_execute(
+        "SELECT id, email, display_name, is_admin, credit_balance, created_at FROM users WHERE id = %s",
         (target["id"],),
-    ).fetchone()
+    )
+    updated = cur.fetchone()
     return jsonify({"success": True, "user": serialize_user(updated)})
 
 
@@ -995,9 +1014,9 @@ def admin_settings():
     return jsonify({"success": True, "settings": load_settings()})
 
 
+# Initialize schema at import time (runs under gunicorn too)
 init_db()
 
-
 if __name__ == "__main__":
-    print("Linyan local app ready at http://127.0.0.1:5000")
-    app.run(debug=False, host="127.0.0.1", port=8080)
+    print("Linyan app ready at http://0.0.0.0:8080")
+    app.run(debug=False, host="0.0.0.0", port=8080)
