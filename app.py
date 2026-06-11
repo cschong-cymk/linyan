@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from flask import Flask, g, jsonify, render_template, request, send_file, session
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 

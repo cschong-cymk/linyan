@@ -150,9 +150,6 @@
     }
     .hero-h1 em {
       font-style: normal;
-    /*  background: linear-gradient(120deg, var(--lavender), var(--mauve));*/
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text;
     }
 
     /* pipeline */
@@ -406,8 +403,9 @@
     .pipe-step.lit .pipe-sub { color: var(--sakura) !important; }
 
     .hero-h1 em {
-      background: linear-gradient(120deg, var(--lavender), var(--sakura)) !important;
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      background: none !important;
+      -webkit-text-fill-color: var(--sakura) !important;
+      color: var(--sakura) !important;
     }
 
     .btn-primary {
