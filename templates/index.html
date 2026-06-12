@@ -440,17 +440,19 @@
       .hero-split-img  { display: none !important; }
     }
 
-    /* ══ WARM INTERIOR — everything inside .shell ══ */
+    /* ══ WARM INTERIOR — everything inside .shell ══
+       Softer, dimmer parchment palette with real depth so nothing glares:
+       page (#e7dcc5) → recessed cards (#e1d5bb) → inset fields (#dccfb3). */
     .shell {
-      background: #f6f1e8;
-      border-top: 1px solid #d6c4a8;
+      background: #e7dcc5;
+      border-top: 1px solid #cdb896;
     }
     .shell, .shell * {
-      --layer:   #f6f1e8;
-      --panel:   #ede3d0;
-      --lift:    #e5d7bf;
-      --line:    rgba(184,140,100,0.18);
-      --line2:   rgba(184,140,100,0.32);
+      --layer:   #dccfb3;
+      --panel:   #e1d5bb;
+      --lift:    #d4c5a7;
+      --line:    rgba(150,115,80,0.18);
+      --line2:   rgba(150,115,80,0.30);
       --ink:     #2e2318;
       --mid:     #6e5640;
       --muted:   #9c7d5c;
@@ -465,25 +467,27 @@
     }
     .shell .section-label { color: rgba(156,125,92,0.7) !important; }
     .shell .card {
-      background: #ede3d0;
-      border: 1px solid #d6c4a8;
+      background: #e1d5bb;
+      border: 1px solid #cdb896;
+      box-shadow: 0 1px 2px rgba(120,90,55,0.06);
     }
     .shell input, .shell select, .shell textarea {
-      background: #f6f1e8;
-      border-color: #c2a882;
+      background: #dccfb3;
+      border-color: #c4ad88;
       color: #2e2318;
+      box-shadow: inset 0 1px 2px rgba(120,90,55,0.07);
     }
     .shell input:focus, .shell select:focus, .shell textarea:focus {
       border-color: #b87333;
-      box-shadow: 0 0 0 3px rgba(184,115,51,0.08);
+      box-shadow: 0 0 0 3px rgba(184,115,51,0.10);
     }
     .shell input::placeholder, .shell textarea::placeholder { color: #b8997a; }
     .shell .checkbox-row {
-      background: #f6f1e8;
-      border-color: #c2a882;
+      background: #dccfb3;
+      border-color: #c4ad88;
       color: #6e5640;
     }
-    .shell .stat { background: #e5d7bf; border-color: #d6c4a8; }
+    .shell .stat { background: #d4c5a7; border-color: #cdb896; }
     .shell .stat-label { color: #b8997a; }
     .shell .stat-val { color: #2e2318; }
     .shell .stat-val.accent { color: #b87333; }
@@ -622,6 +626,66 @@
       .actions       { flex-direction: column; }
       .actions .btn  { width: 100%; }
     }
+
+    /* ═══════════════ MOBILE HAMBURGER NAV ═══════════════ */
+    .hamburger {
+      display: none;                 /* hidden on desktop */
+      flex-direction: column;
+      justify-content: center;
+      gap: 5px;
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      flex-shrink: 0;
+      z-index: 70;
+    }
+    .hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: #f3e7d8;
+      border-radius: 2px;
+      transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+    /* animate to an "X" when open */
+    .topbar.nav-open .hamburger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .topbar.nav-open .hamburger span:nth-child(2) { opacity: 0; }
+    .topbar.nav-open .hamburger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: nowrap; }
+      .hamburger { display: flex; }
+
+      /* topbar-right becomes a dropdown panel anchored under the bar */
+      .topbar .topbar-right {
+        position: absolute;
+        top: 100%;
+        right: 16px;
+        left: 16px;
+        display: none;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+        margin-top: 10px;
+        padding: 18px 20px;
+        background: #16121f;
+        border: 1px solid var(--line2);
+        border-radius: 12px;
+        box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+        z-index: 60;
+      }
+      .topbar.nav-open .topbar-right { display: flex; }
+      .topbar.nav-open .topbar-meta {
+        display: flex !important;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .topbar .byte-badge { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -656,6 +720,9 @@
           <span style="opacity:0.45;font-size:10px;letter-spacing:0.08em;">[ByteDance] models</span>
         </a>
       </div>
+      <button class="hamburger" id="navToggle" aria-label="Menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
     </header>
 
     <!-- hero split -->
@@ -1094,6 +1161,25 @@
     ["planner-model","video-model","aspect-ratio","resolution","style-preset","target-duration","voice-model","narration-enabled","planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(function(id){var el=document.getElementById(id);el.addEventListener("change",function(){refreshQuote().catch(function(){});});el.addEventListener("input",function(){refreshQuote().catch(function(){});});});
     ["planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(bindRange);
     refreshSession().catch(function(err){showFlash("error",err.message);});
+  </script>
+  <script>
+    /* mobile hamburger toggle */
+    (function(){
+      var bar = document.querySelector(".topbar");
+      var btn = document.getElementById("navToggle");
+      if(!bar || !btn) return;
+      btn.addEventListener("click", function(e){
+        e.stopPropagation();
+        var open = bar.classList.toggle("nav-open");
+        btn.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      document.addEventListener("click", function(e){
+        if(bar.classList.contains("nav-open") && !bar.contains(e.target)){
+          bar.classList.remove("nav-open");
+          btn.setAttribute("aria-expanded","false");
+        }
+      });
+    })();
   </script>
 </body>
 </html>

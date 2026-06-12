@@ -126,6 +126,23 @@ app.secret_key = APP_SECRET
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
 
 
+@app.after_request
+def add_no_cache_headers(resp):
+    """Stop browsers/proxies serving stale HTML.
+
+    The CSS is inlined inside the templates, so there is no separate
+    stylesheet file to version with a ?v=timestamp query string. Instead
+    we tell clients never to cache the HTML, which means every markup/CSS
+    change shows up on the next request. (Cloudflare still has its own edge
+    cache — purge it once after deploying if a change doesn't appear.)
+    """
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+
 def now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
