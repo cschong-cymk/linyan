@@ -440,109 +440,111 @@
       .hero-split-img  { display: none !important; }
     }
 
-    /* ══ WARM INTERIOR — everything inside .shell ══
-       Softer, dimmer parchment palette with real depth so nothing glares:
-       page (#e7dcc5) → recessed cards (#e1d5bb) → inset fields (#dccfb3). */
+    /* ══ DARK INTERIOR — everything inside .shell ══
+       Continues the hero's dark violet palette so the form reads as one
+       surface with the hero: page (#100d1a) → cards (#201c30) → fields
+       (#1a1628), lavender/sakura accents, light ink text. */
     .shell {
-      background: #e7dcc5;
-      border-top: 1px solid #cdb896;
+      background: #100d1a;
+      border-top: 1px solid rgba(200,170,220,0.14);
     }
     .shell, .shell * {
-      --layer:   #dccfb3;
-      --panel:   #e1d5bb;
-      --lift:    #d4c5a7;
-      --line:    rgba(150,115,80,0.18);
-      --line2:   rgba(150,115,80,0.30);
-      --ink:     #2e2318;
-      --mid:     #6e5640;
-      --muted:   #9c7d5c;
-      --ghost:   #b8997a;
-      --violet:  #b87333;
-      --lavender:#d4924a;
-      --sakura:  #c87060;
-      --petal:   #e8b090;
-      --ok:      #4a7a52;
-      --warn:    #a86020;
-      --danger:  #943020;
+      --layer:   #1a1628;
+      --panel:   #201c30;
+      --lift:    #27213a;
+      --line:    rgba(200,170,220,0.12);
+      --line2:   rgba(200,170,220,0.22);
+      --ink:     #f2eef8;
+      --mid:     #c8bce0;
+      --muted:   #9080b0;
+      --ghost:   #5e5078;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --sakura:  #f9a8c9;
+      --petal:   #fbd0e4;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
     }
-    .shell .section-label { color: rgba(156,125,92,0.7) !important; }
+    .shell .section-label { color: rgba(144,128,176,0.8) !important; }
     .shell .card {
-      background: #e1d5bb;
-      border: 1px solid #cdb896;
-      box-shadow: 0 1px 2px rgba(120,90,55,0.06);
+      background: #201c30;
+      border: 1px solid rgba(200,170,220,0.12);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.28);
     }
     .shell input, .shell select, .shell textarea {
-      background: #dccfb3;
-      border-color: #c4ad88;
-      color: #2e2318;
-      box-shadow: inset 0 1px 2px rgba(120,90,55,0.07);
+      background: #1a1628;
+      border-color: rgba(200,170,220,0.18);
+      color: #f2eef8;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
     }
     .shell input:focus, .shell select:focus, .shell textarea:focus {
-      border-color: #b87333;
-      box-shadow: 0 0 0 3px rgba(184,115,51,0.10);
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 3px rgba(167,139,250,0.16);
     }
-    .shell input::placeholder, .shell textarea::placeholder { color: #b8997a; }
+    .shell input::placeholder, .shell textarea::placeholder { color: #5e5078; }
     .shell .checkbox-row {
-      background: #dccfb3;
-      border-color: #c4ad88;
-      color: #6e5640;
+      background: #1a1628;
+      border-color: rgba(200,170,220,0.18);
+      color: #c8bce0;
     }
-    .shell .stat { background: #d4c5a7; border-color: #cdb896; }
-    .shell .stat-label { color: #b8997a; }
-    .shell .stat-val { color: #2e2318; }
-    .shell .stat-val.accent { color: #b87333; }
+    .shell .stat { background: #201c30; border-color: rgba(200,170,220,0.12); }
+    .shell .stat-label { color: #9080b0; }
+    .shell .stat-val { color: #f2eef8; }
+    .shell .stat-val.accent { color: #a78bfa; }
     .shell .btn-primary {
-      background: #b87333 !important;
-      box-shadow: none !important;
+      background: linear-gradient(135deg, #a78bfa, #8b6df0) !important;
+      color: #ffffff !important;
+      box-shadow: 0 4px 14px rgba(139,109,240,0.35) !important;
     }
-    .shell .btn-primary:hover { background: #d4924a !important; transform: translateY(-1px); }
-    .shell .btn-ghost { border-color: #c2a882; color: #6e5640; }
-    .shell .btn-ghost:hover { background: #e5d7bf; color: #2e2318; }
+    .shell .btn-primary:hover { background: linear-gradient(135deg, #b9a3fb, #9d80f4) !important; transform: translateY(-1px); }
+    .shell .btn-ghost { border-color: rgba(200,170,220,0.22); color: #c8bce0; }
+    .shell .btn-ghost:hover { background: rgba(200,170,220,0.08); color: #f2eef8; }
     .shell .quote-bar {
-      background: #e5d7bf !important;
-      border: 1px solid #c2a882 !important;
+      background: #201c30 !important;
+      border: 1px solid rgba(200,170,220,0.18) !important;
     }
     .shell .quote-amount {
       background: none !important;
-      -webkit-text-fill-color: #b87333 !important;
-      color: #b87333 !important;
+      -webkit-text-fill-color: #a78bfa !important;
+      color: #a78bfa !important;
     }
-    .shell .quote-label { color: #b8997a; }
-    .shell .quote-meta  { color: #9c7d5c; }
-    .shell .range-val   { color: #b87333 !important; }
-    .shell .range-meta  { color: #b8997a; }
-    .shell .input-tab   { background: transparent; color: #b8997a; border-color: #c2a882; }
-    .shell .input-tab.active { background: rgba(184,115,51,0.12) !important; color: #b87333 !important; }
-    .shell th   { color: #9c7d5c; }
-    .shell td   { color: #6e5640; border-color: #d6c4a8; }
-    .shell td strong { color: #2e2318; }
-    .shell tr:hover td { background: rgba(184,115,51,0.03); }
-    .shell .badge-ok  { background: rgba(74,122,82,0.1);   color: #2e5c36; }
-    .shell .badge-run { background: rgba(168,96,32,0.1);   color: #a86020; }
-    .shell .badge-err { background: rgba(148,48,32,0.1);   color: #943020; }
-    .shell .badge-dim { background: #e5d7bf; color: #9c7d5c; border-color: #d6c4a8; }
-    .shell .tip-list li { color: #6e5640; }
-    .shell .tip-list li::before { color: #c2a882; }
+    .shell .quote-label { color: #9080b0; }
+    .shell .quote-meta  { color: #9080b0; }
+    .shell .range-val   { color: #a78bfa !important; }
+    .shell .range-meta  { color: #9080b0; }
+    .shell .input-tab   { background: transparent; color: #9080b0; border-color: rgba(200,170,220,0.22); }
+    .shell .input-tab.active { background: rgba(167,139,250,0.15) !important; color: #c4b5fd !important; }
+    .shell th   { color: #9080b0; }
+    .shell td   { color: #c8bce0; border-color: rgba(200,170,220,0.12); }
+    .shell td strong { color: #f2eef8; }
+    .shell tr:hover td { background: rgba(167,139,250,0.05); }
+    .shell .badge-ok  { background: rgba(110,231,183,0.12); color: #6ee7b7; }
+    .shell .badge-run { background: rgba(252,211,77,0.12);  color: #fcd34d; }
+    .shell .badge-err { background: rgba(252,165,165,0.12); color: #fca5a5; }
+    .shell .badge-dim { background: #27213a; color: #9080b0; border-color: rgba(200,170,220,0.12); }
+    .shell .tip-list li { color: #c8bce0; }
+    .shell .tip-list li::before { color: #a78bfa; }
     .shell .warn-strip {
-      background: rgba(168,96,32,0.07);
-      border-color: rgba(168,96,32,0.4);
-      color: #a86020;
+      background: rgba(252,211,77,0.08);
+      border-color: rgba(252,211,77,0.35);
+      color: #fcd34d;
     }
-    .shell .side-note-title { color: #9c7d5c; }
-    .shell .vdivider { background: #d6c4a8; }
-    .shell .section-line { background: #d6c4a8; }
-    .shell a { color: #b87333; }
-    .shell a:hover { color: #d4924a; }
-    .shell #flash.ok    { background: rgba(74,122,82,0.08);  border-color: #4a7a52; color: #2e5c36; }
-    .shell #flash.warn  { background: rgba(168,96,32,0.08);  border-color: #a86020; color: #a86020; }
-    .shell #flash.error { background: rgba(148,48,32,0.08);  border-color: #943020; color: #943020; }
-    .shell .workspace-name { color: #2e2318; }
-    .shell .workspace-email { color: #9c7d5c; }
-    .shell .pipe-step { background: rgba(237,227,208,0.7); border-color: #d6c4a8; }
-    .shell .pipe-step.lit { background: rgba(184,115,51,0.12) !important; border-color: rgba(184,115,51,0.3); }
-    .shell .pipe-num  { color: #b8997a; }
-    .shell .pipe-label { color: #2e2318; }
-    .shell .pipe-sub  { color: #9c7d5c; }
+    .shell .side-note-title { color: #9080b0; }
+    .shell .vdivider { background: rgba(200,170,220,0.14); }
+    .shell .section-line { background: rgba(200,170,220,0.14); }
+    .shell a { color: #c4b5fd; }
+    .shell a:hover { color: #f9a8c9; }
+    .shell #flash.ok    { background: rgba(110,231,183,0.1); border-color: #6ee7b7; color: #6ee7b7; }
+    .shell #flash.warn  { background: rgba(252,211,77,0.1);  border-color: #fcd34d; color: #fcd34d; }
+    .shell #flash.error { background: rgba(252,165,165,0.1); border-color: #fca5a5; color: #fca5a5; }
+    .shell .workspace-name { color: #f2eef8; }
+    .shell .workspace-email { color: #9080b0; }
+    .shell .pipe-step { background: rgba(32,28,48,0.7); border-color: rgba(200,170,220,0.12); }
+    .shell .pipe-step.lit { background: rgba(167,139,250,0.14) !important; border-color: rgba(167,139,250,0.35); }
+    .shell .pipe-num  { color: #9080b0; }
+    .shell .pipe-label { color: #f2eef8; }
+    .shell .pipe-sub  { color: #9080b0; }
 
     /* ═══════════════ RESPONSIVE LAYOUT · max-width 1100px ═══════════════ */
 
