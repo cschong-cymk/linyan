@@ -15,13 +15,14 @@ from urllib import request as urllib_request
 import psycopg2
 import psycopg2.extras
 
-from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 APP_ROOT = Path(__file__).resolve().parent
 TEMPLATE_DIR = APP_ROOT / "templates"
 DATA_DIR = APP_ROOT / "data"
+ASSETS_DIR = APP_ROOT / "assets"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
 DATA_DIR.mkdir(exist_ok=True)
@@ -141,6 +142,17 @@ def add_no_cache_headers(resp):
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
     return resp
+
+
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    """Serve files from the assets/ folder (e.g. /assets/linyan.mp4).
+
+    Flask's default static folder isn't used by this app, so media bundled
+    in assets/ (shipped into the image by the Dockerfile's COPY . .) needs an
+    explicit route. send_from_directory keeps it safe against path traversal.
+    """
+    return send_from_directory(ASSETS_DIR, filename)
 
 
 def now_iso():
