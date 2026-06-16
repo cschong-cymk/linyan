@@ -1,3 +1,6 @@
+
+The video linyan.webm isn't playing
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1059,7 +1062,7 @@
 
   </main>
 
-  <script>
+<script>
     var state={session:null,jobs:[],admin:null,inputMode:"text"};
     function setInputMode(m){
       state.inputMode=m;
@@ -1170,25 +1173,36 @@
     ["planner-model","video-model","aspect-ratio","resolution","style-preset","target-duration","voice-model","narration-enabled","planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(function(id){var el=document.getElementById(id);el.addEventListener("change",function(){refreshQuote().catch(function(){});});el.addEventListener("input",function(){refreshQuote().catch(function(){});});});
     ["planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(bindRange);
     refreshSession().catch(function(err){showFlash("error",err.message);});
-  </script>
-  <script>
+
+    /* ── video mute toggle ── */
+    function toggleMute(){
+      var video=document.querySelector(".hero-video");
+      var btn=document.getElementById("mute-toggle");
+      if(!video)return;
+      video.muted=!video.muted;
+      if(!video.muted)video.volume=0.4;
+      btn.textContent=video.muted?"🔇":"🔊";
+    }
+</script>
+
+<script>
     /* mobile hamburger toggle */
     (function(){
-      var bar = document.querySelector(".topbar");
-      var btn = document.getElementById("navToggle");
-      if(!bar || !btn) return;
-      btn.addEventListener("click", function(e){
+      var bar=document.querySelector(".topbar");
+      var btn=document.getElementById("navToggle");
+      if(!bar||!btn)return;
+      btn.addEventListener("click",function(e){
         e.stopPropagation();
-        var open = bar.classList.toggle("nav-open");
-        btn.setAttribute("aria-expanded", open ? "true" : "false");
+        var open=bar.classList.toggle("nav-open");
+        btn.setAttribute("aria-expanded",open?"true":"false");
       });
-      document.addEventListener("click", function(e){
-        if(bar.classList.contains("nav-open") && !bar.contains(e.target)){
+      document.addEventListener("click",function(e){
+        if(bar.classList.contains("nav-open")&&!bar.contains(e.target)){
           bar.classList.remove("nav-open");
           btn.setAttribute("aria-expanded","false");
         }
       });
     })();
-  </script>
+</script>
 </body>
 </html>
