@@ -1,8 +1,6 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-# ffmpeg for video generation, fonts for any text rendering
+# ffmpeg for video generation, fonts for text rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     fonts-dejavu-core \
@@ -12,7 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
 RUN pip install --no-cache-dir -r requirements.txt gunicorn psycopg2-binary
 
 COPY . .
@@ -21,5 +18,4 @@ RUN mkdir -p /app/data/uploads /app/data/outputs
 
 EXPOSE 8080
 
-# Single worker (SQLite-style threading model + background threads), 4 threads for concurrency
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "4", "--timeout", "120", "app:app"]

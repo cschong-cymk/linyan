@@ -17,13 +17,14 @@ from urllib import request as urllib_request
 import psycopg2
 import psycopg2.extras
 
-from flask import Flask, g, jsonify, redirect, render_template, request, send_file, session
+from flask import Flask, g, jsonify, redirect, render_template, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 APP_ROOT = Path(__file__).resolve().parent
 TEMPLATE_DIR = APP_ROOT / "templates"
 DATA_DIR = APP_ROOT / "data"
+ASSETS_DIR = APP_ROOT / "assets"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
 DATA_DIR.mkdir(exist_ok=True)
@@ -115,6 +116,34 @@ DRAW_TEXT_FONTS = [
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 app.secret_key = APP_SECRET
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+
+
+@app.after_request
+def add_no_cache_headers(resp):
+    """Stop browsers/proxies serving stale HTML.
+
+    The CSS is inlined inside the templates, so there is no separate
+    stylesheet file to version with a ?v=timestamp query string. Instead
+    we tell clients never to cache the HTML, which means every markup/CSS
+    change shows up on the next request. (Cloudflare still has its own edge
+    cache — purge it once after deploying if a change doesn't appear.)
+    """
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+
+@app.route("/assets/<path:filename>")
+def assets(filename):
+    """Serve files from the assets/ folder (e.g. /assets/linyan.mp4).
+
+    Flask's default static folder isn't used by this app, so media bundled
+    in assets/ (shipped into the image by the Dockerfile's COPY . .) needs an
+    explicit route. send_from_directory keeps it safe against path traversal.
+    """
+    return send_from_directory(ASSETS_DIR, filename)
 
 
 def now_iso():

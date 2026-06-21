@@ -400,6 +400,17 @@
 
     @media(max-width:900px){.desk{grid-template-columns:1fr;}}
     @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
+    /* ═══════════ RESPONSIVE ═══════════ */
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: wrap; height: auto; gap: 12px; padding: 12px 20px; }
+      .topbar-right { gap: 12px; flex-wrap: wrap; }
+      .topbar-center { flex-wrap: wrap; }
+      .moleskine { padding: 32px 22px 64px; }
+    }
+    @media (max-width: 480px) {
+      .topbar { padding: 10px 16px; }
+      .moleskine { padding: 24px 16px 56px; }
+    }
   </style>
 </head>
 <body>

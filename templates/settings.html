@@ -239,6 +239,17 @@
     a{color:var(--accent);text-decoration:none;}
     a:hover{color:var(--accent-l);}
     .hidden{display:none!important;}
+    /* ═══════════ RESPONSIVE ═══════════ */
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: wrap; height: auto; gap: 10px; padding: 10px 20px; }
+      .topbar-right { gap: 12px; flex-wrap: wrap; }
+      .content { padding: 32px 22px 64px; max-width: 100%; }
+      .sidebar { padding: 20px 0; }
+    }
+    @media (max-width: 480px) {
+      .topbar { padding: 10px 16px; }
+      .content { padding: 24px 16px 56px; }
+    }
   </style>
 </head>
 <body>
