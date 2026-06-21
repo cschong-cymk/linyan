@@ -1,8 +1,10 @@
-import json
+﻿import json
 import os
+import shutil
 import threading
 import subprocess
 import textwrap
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -32,9 +34,13 @@ APP_SECRET = os.environ.get("LINYAN_SECRET_KEY", "linyan-dev-secret-change-me")
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgres://postgres:postgres@localhost:5432/flask"
 )
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-OPENROUTER_HTTP_REFERER = os.environ.get("OPENROUTER_HTTP_REFERER", "https://linyan.io")
-OPENROUTER_APP_NAME = os.environ.get("OPENROUTER_APP_NAME", "Linyan")
+# ModelArk (BytePlus Ark) — used for both planning and video generation
+ARK_API_KEY = os.environ.get("ARK_API_KEY")
+ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
+
+# How long to poll for a single shot clip before giving up (seconds)
+SHOT_POLL_TIMEOUT = int(os.environ.get("SHOT_POLL_TIMEOUT", "600"))
+SHOT_POLL_INTERVAL = int(os.environ.get("SHOT_POLL_INTERVAL", "10"))
 
 ASPECT_PRESETS = {
     "16:9": (1280, 720),
@@ -46,55 +52,41 @@ ASPECT_PRESETS = {
 MODEL_CATALOG = {
     "planner_models": [
         {
-            "id": "openai/gpt-4.1-mini",
-            "label": "GPT-4.1 Mini",
-            "family": "openrouter",
+            "id": "seed-2-0-lite-260228",
+            "label": "Seed 2.0 Lite",
+            "family": "ark",
             "recommended": True,
             "summary": "Fast story breakdown and shot planning.",
         },
         {
-            "id": "anthropic/claude-3.7-sonnet",
-            "label": "Claude 3.7 Sonnet",
-            "family": "openrouter",
+            "id": "seed-1-6-250915",
+            "label": "Seed 1.6",
+            "family": "ark",
             "recommended": False,
             "summary": "Stronger scene logic, more costly.",
         },
         {
-            "id": "google/gemini-2.5-pro",
-            "label": "Gemini 2.5 Pro",
-            "family": "openrouter",
+            "id": "seed-1-8-251228",
+            "label": "Seed 1.8",
+            "family": "ark",
             "recommended": False,
-            "summary": "Good long-context planning when storyboards are messy.",
+            "summary": "Deep reasoning mode; best for complex multi-scene storyboards.",
         },
     ],
     "video_models": [
         {
-            "id": "google/veo-3-fast",
-            "label": "Veo 3 Fast",
-            "provider": "google",
+            "id": "dreamina-seedance-2-0-260128",
+            "label": "Seedance 2.0 Standard",
+            "provider": "ark",
             "cost_factor": 1.0,
-            "summary": "Balanced default for fast preview renders.",
+            "summary": "1080p. Balanced quality and speed for commercial use.",
         },
         {
-            "id": "kling/kling-2.1-master",
-            "label": "Kling 2.1 Master",
-            "provider": "kling",
-            "cost_factor": 1.2,
-            "summary": "More stylized motion and camera moves.",
-        },
-        {
-            "id": "runway/gen-4-turbo",
-            "label": "Runway Gen-4 Turbo",
-            "provider": "runway",
-            "cost_factor": 1.3,
-            "summary": "Higher-end commercial feel, more costly.",
-        },
-        {
-            "id": "qwen/wan-2.6-t2v",
-            "label": "Wan 2.6 T2V",
-            "provider": "qwen",
-            "cost_factor": 0.9,
-            "summary": "Budget-friendly exploration and rough ideation.",
+            "id": "dreamina-seedance-2-0-fast-260128",
+            "label": "Seedance 2.0 Fast",
+            "provider": "ark",
+            "cost_factor": 0.5,
+            "summary": "720p. Rapid prototyping and draft iterations.",
         },
     ],
     "voice_models": [
@@ -107,12 +99,11 @@ MODEL_CATALOG = {
 
 DEFAULT_SETTINGS = {
     "allow_signup": True,
-    "margin_multiplier": 1.35,
+    "margin_multiplier": 1.5,
     "signup_bonus_credits": 120.0,
-    "base_job_credits": 18.0,
     "credit_label": "Linyan credits",
-    "default_planner_model": "openai/gpt-4.1-mini",
-    "default_video_model": "google/veo-3-fast",
+    "default_planner_model": "seed-2-0-lite-260228",
+    "default_video_model": "dreamina-seedance-2-0-260128",
 }
 
 # Linux container font candidates (macOS paths removed)
@@ -330,13 +321,6 @@ def apply_credit_delta(user_id, delta, reason, note="", actor_user_id=None):
     db.commit()
 
 
-def get_video_cost_factor(video_model_id):
-    for item in MODEL_CATALOG["video_models"]:
-        if item["id"] == video_model_id:
-            return item["cost_factor"], item["provider"]
-    return 1.0, "custom"
-
-
 def clamp_float(value, default, minimum, maximum):
     try:
         parsed = float(value)
@@ -378,25 +362,34 @@ def normalize_config(raw_config, settings):
 
 
 def estimate_job_cost(config, settings):
+    """
+    Estimate job cost in Linyan credits based on real Seedance 2.0 published rates.
+
+    Published USD rates (per second of generated video):
+      dreamina-seedance-2-0-260128       (Standard, 1080p): $0.05–$0.10  → midpoint $0.075/s
+      dreamina-seedance-2-0-fast-260128  (Fast,     720p):  $0.01–$0.02  → midpoint $0.015/s
+
+    1 Linyan credit = $0.01 USD
+    Margin multiplier applied on top (default 1.5 = 50% margin).
+    """
+    SEEDANCE_USD_PER_SECOND = {
+        "dreamina-seedance-2-0-260128":      0.075,
+        "dreamina-seedance-2-0-fast-260128": 0.015,
+    }
+    CREDITS_PER_USD = 100.0  # 1 credit = $0.01
+
+    video_model = config["video_model"]
+    usd_per_second = SEEDANCE_USD_PER_SECOND.get(video_model, 0.075)
+    provider = "ark"
+
     duration = config["target_duration"]
-    resolution_factor = {
-        "720p": 0.9,
-        "1080p": 1.2,
-        "4k": 1.8,
-    }.get(config["resolution"], 1.2)
-    model_factor, provider = get_video_cost_factor(config["video_model"])
-    temperature_bundle = (
-        config["planner_temperature"]
-        + config["direction_temperature"]
-        + config["motion_temperature"]
-        + config["dialogue_temperature"]
-    ) / 4.0
-    consistency_factor = 1.0 + ((1.0 - config["consistency_strength"]) * 0.35)
-    narration_bonus = 5.0 if config["narration_enabled"] else 0.0
-    base = float(settings["base_job_credits"])
-    cost = (base + duration * 0.45 + narration_bonus + temperature_bundle * 6.0) * resolution_factor
-    cost = cost * model_factor * consistency_factor * float(settings["margin_multiplier"])
-    return round(cost, 1), provider
+    margin = float(settings["margin_multiplier"])
+
+    raw_usd = usd_per_second * duration
+    charged_usd = raw_usd * margin
+    credits = charged_usd * CREDITS_PER_USD
+
+    return round(credits, 1), provider
 
 
 def ffmpeg_text(value):
@@ -467,67 +460,136 @@ def generate_placeholder_bundle(output_path, title, job_id, config, storyboard_t
         )
 
 
-def call_openrouter_planner(storyboard_text, config):
-    if not OPENROUTER_API_KEY:
+def call_planner(storyboard_text, config):
+    """
+    Call ModelArk (BytePlus Ark) chat completions to decompose a prose storyboard
+    into a list of structured shots with durations that sum to target_duration.
+
+    Returns a dict:
+      {
+        "status": "ok" | "skipped" | "failed",
+        "message": str,
+        "shots": [
+          {
+            "index": int,          # 1-based
+            "duration": int,       # 5 or 10 (Seedance constraint)
+            "prompt": str,         # rich visual prompt for the video model
+            "camera": str,         # camera move / framing note
+            "narration": str       # VO line or "" if none
+          },
+          ...
+        ],
+        "plan_text": str           # raw JSON string for the plan file
+      }
+    """
+    if not ARK_API_KEY:
         return {
-            "enabled": False,
             "status": "skipped",
-            "message": "OPENROUTER_API_KEY not configured. Saved local placeholder render only.",
+            "message": "ARK_API_KEY not configured.",
+            "shots": [],
             "plan_text": "",
         }
-    prompt = textwrap.dedent(
-        f"""
-        You are a storyboard-to-video planner.
-        Convert the markdown storyboard below into a compact production brief.
-        Return plain text with these sections:
-        1. Story spine
-        2. Character continuity
-        3. Scene list
-        4. Camera and motion notes
-        5. Narration direction
-        Constraints:
-        - Style preset: {config["style_preset"]}
-        - Target duration: {config["target_duration"]} seconds
-        - Aspect ratio: {config["aspect_ratio"]}
-        - Consistency strength: {config["consistency_strength"]}
-        """
-    ).strip()
+
+    # Decide reasonable shot count from target duration.
+    # Seedance supports 5 s and 10 s clips. We prefer 5 s clips for tighter control,
+    # allowing 10 s only when the planner decides a scene needs more breathing room.
+    target = config["target_duration"]
+    max_shots = max(1, target // 5)   # upper bound: one 5-second clip per slot
+
+    system_prompt = textwrap.dedent("""
+        You are a professional video production planner.
+        Your job is to decompose a prose storyboard into discrete video shots
+        that a text-to-video model will render one at a time.
+        Each shot must have a duration between 4 and 15 seconds (integers only).
+        The total of all shot durations must not exceed the target duration.
+        Return ONLY valid JSON — no markdown fences, no commentary.
+        The JSON must match this schema exactly:
+        {
+          "shots": [
+            {
+              "index": <integer, 1-based>,
+              "duration": <5 or 10>,
+              "prompt": "<rich visual description for the video model>",
+              "camera": "<camera movement and framing note>",
+              "narration": "<voice-over line, or empty string if none>"
+            }
+          ]
+        }
+        Rules:
+        - Prompt must be self-contained (the video model has no memory between shots).
+        - Describe characters, setting, lighting, and action in each prompt.
+        - Keep narration lines short enough to fit the shot duration at normal speaking pace.
+        - Do not reference shot numbers or metadata inside the prompt field.
+    """).strip()
+
+    user_prompt = textwrap.dedent(f"""
+        Style preset: {config["style_preset"]}
+        Target duration: {target} seconds (max {max_shots} shots)
+        Aspect ratio: {config["aspect_ratio"]}
+        Narration enabled: {config["narration_enabled"]}
+        Consistency strength: {config["consistency_strength"]}
+
+        Storyboard (prose):
+        {storyboard_text[:12000]}
+    """).strip()
+
     payload = {
         "model": config["planner_model"],
         "temperature": config["planner_temperature"],
+        "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": "Be concise. Optimize for production clarity."},
-            {"role": "user", "content": prompt + "\n\nStoryboard:\n" + storyboard_text[:12000]},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
     }
     body = json.dumps(payload).encode("utf-8")
-    request_headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": OPENROUTER_HTTP_REFERER,
-        "X-Title": OPENROUTER_APP_NAME,
-    }
     req = urllib_request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        f"{ARK_API_BASE}/chat/completions",
         data=body,
-        headers=request_headers,
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
         method="POST",
     )
     try:
-        with urllib_request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        text_value = data["choices"][0]["message"]["content"].strip()
+        with urllib_request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_json = data["choices"][0]["message"]["content"].strip()
+        parsed = json.loads(raw_json)
+        shots = parsed.get("shots", [])
+        if not shots:
+            raise ValueError("Planner returned zero shots.")
+        # Validate and clamp each shot
+        clean_shots = []
+        for i, s in enumerate(shots):
+            duration = int(s.get("duration", 5))
+            duration = max(4, min(15, duration))  # Seedance supports 4–15 s
+            clean_shots.append({
+                "index": i + 1,
+                "duration": duration,
+                "prompt": str(s.get("prompt", "")).strip(),
+                "camera": str(s.get("camera", "")).strip(),
+                "narration": str(s.get("narration", "")).strip(),
+            })
         return {
-            "enabled": True,
             "status": "ok",
-            "message": "Planner brief generated via OpenRouter.",
-            "plan_text": text_value,
+            "message": f"Planner produced {len(clean_shots)} shots via ModelArk.",
+            "shots": clean_shots,
+            "plan_text": json.dumps({"shots": clean_shots}, indent=2),
         }
-    except (urllib_error.HTTPError, urllib_error.URLError, KeyError, IndexError, json.JSONDecodeError) as exc:
+    except (urllib_error.HTTPError, urllib_error.URLError) as exc:
         return {
-            "enabled": True,
             "status": "failed",
-            "message": f"Planner call failed: {exc}",
+            "message": f"ModelArk request failed: {exc}",
+            "shots": [],
+            "plan_text": "",
+        }
+    except (KeyError, IndexError, json.JSONDecodeError, ValueError) as exc:
+        return {
+            "status": "failed",
+            "message": f"Planner response parse error: {exc}",
+            "shots": [],
             "plan_text": "",
         }
 
@@ -551,7 +613,7 @@ def serialize_job(row):
 
 
 def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits):
-    """Runs in a background thread. Opens its own connection."""
+    """Runs in a background thread. Opens its own DB connection."""
     db = new_connection()
 
     def set_status(status, output_path=None, output_kind=None, plan_path=None, extra_params=None):
@@ -577,51 +639,244 @@ def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, est
             )
         db.commit()
 
+    def charge_credits():
+        """
+        Deduct credits atomically. Uses UPDATE ... WHERE credit_balance >= cost
+        so a concurrent job cannot overdraw the account (fixes TOCTOU).
+        Raises RuntimeError if balance is now insufficient (race lost).
+        """
+        cur = db.cursor()
+        cur.execute(
+            """
+            UPDATE users
+            SET credit_balance = ROUND(CAST(credit_balance - %s AS numeric), 1)
+            WHERE id = %s AND credit_balance >= %s
+            """,
+            (estimated_credits, user_id, estimated_credits),
+        )
+        if cur.rowcount == 0:
+            db.rollback()
+            raise RuntimeError("Insufficient credits at charge time (concurrent job may have raced).")
+        cur.execute(
+            """
+            INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, -round(estimated_credits, 1), "job_charge",
+             f"Charged for job {job_id}", user_id, now_iso()),
+        )
+        db.commit()
+
     try:
+        # ── Phase 1: Planning ────────────────────────────────────────────────
         set_status("planning")
-        planner_payload = call_openrouter_planner(storyboard_text, config)
-        plan_path = OUTPUT_DIR / f"{job_id}-plan.txt"
+        planner = call_planner(storyboard_text, config)
+
+        plan_path = OUTPUT_DIR / f"{job_id}-plan.json"
         plan_path.write_text(
-            planner_payload["plan_text"] or planner_payload["message"],
+            planner["plan_text"] or json.dumps({"error": planner["message"]}),
             encoding="utf-8",
         )
         set_status(
             "rendering",
             plan_path=plan_path,
             extra_params={
-                "planner_status": planner_payload["status"],
-                "planner_message": planner_payload["message"],
+                "planner_status": planner["status"],
+                "planner_message": planner["message"],
+                "shot_count": len(planner["shots"]),
             },
         )
 
+        # ── Phase 2 & 3: Render shots then stitch ───────────────────────────
+        # If planner succeeded and we have real shots, attempt real rendering.
+        # If planner failed/skipped, fall through to placeholder immediately.
         output_kind = "mp4"
         output_path = OUTPUT_DIR / f"{job_id}.mp4"
-        try:
-            generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            output_kind = "zip"
-            output_path = OUTPUT_DIR / f"{job_id}.zip"
-            generate_placeholder_bundle(
-                output_path, config["title"], job_id, config, storyboard_text, planner_payload
-            )
+        rendered_ok = False
 
-        cur = db.cursor()
-        cur.execute(
-            "UPDATE users SET credit_balance = ROUND(CAST(credit_balance - %s AS numeric), 1) WHERE id = %s",
-            (estimated_credits, user_id),
-        )
-        cur.execute(
-            """INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            (user_id, -round(estimated_credits, 1), "job_charge", f"Charged for job {job_id}", user_id, now_iso()),
-        )
-        db.commit()
+        if planner["status"] == "ok" and planner["shots"]:
+            clips, shot_log = render_shots(job_id, planner["shots"], config)
+            set_status("rendering", extra_params={"shot_log": shot_log})
+            if clips:
+                stitch_ok = stitch_shots(clips, output_path, config)
+                if stitch_ok:
+                    rendered_ok = True
+                    # Clean up individual shot clips — final MP4 is all we need
+                    for clip_path, _ in clips:
+                        clip_path.unlink(missing_ok=True)
 
+        if not rendered_ok:
+            # Fallback: placeholder video (green screen + tone) or zip bundle
+            try:
+                generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                output_kind = "zip"
+                output_path = OUTPUT_DIR / f"{job_id}.zip"
+                generate_placeholder_bundle(
+                    output_path, config["title"], job_id, config, storyboard_text, planner
+                )
+
+        # ── Phase 4: Charge credits only on success ──────────────────────────
+        charge_credits()
         set_status("completed", output_path=output_path, output_kind=output_kind)
+
+    except RuntimeError as exc:
+        # Credit race or explicit business logic failure
+        set_status("failed", extra_params={"error": str(exc)})
     except Exception as exc:
         set_status("failed", extra_params={"error": str(exc)})
     finally:
         db.close()
+
+
+def call_video_model(shot, config, clip_path):
+    """
+    Submit one shot to Seedance 2.0, poll until done, download clip.
+    Returns (True, "ok") on success, (False, reason_string) on any failure.
+    """
+    if not ARK_API_KEY:
+        return False, "ARK_API_KEY not set"
+
+    prompt_parts = [shot["prompt"]]
+    if shot.get("camera"):
+        prompt_parts.append(shot["camera"])
+    full_prompt = ". ".join(p.strip().rstrip(".") for p in prompt_parts if p.strip())
+
+    duration = max(4, min(15, int(shot.get("duration", 5))))
+
+    payload = {
+        "model": config["video_model"],
+        "content": [{"type": "text", "text": full_prompt}],
+        "ratio": config["aspect_ratio"],
+        "resolution": config["resolution"],
+        "duration": duration,
+        "generate_audio": False,
+    }
+
+    submit_req = urllib_request.Request(
+        f"{ARK_API_BASE}/contents/generations/tasks",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(submit_req, timeout=30) as resp:
+            submit_data = json.loads(resp.read().decode("utf-8"))
+        task_id = submit_data.get("id") or submit_data.get("task_id")
+        if not task_id:
+            return False, f"No task_id in submit response: {submit_data}"
+    except urllib_error.HTTPError as exc:
+        return False, f"Submit HTTP {exc.code}: {exc.reason}"
+    except (urllib_error.URLError, json.JSONDecodeError) as exc:
+        return False, f"Submit error: {exc}"
+
+    # Poll until terminal state or timeout
+    poll_url = f"{ARK_API_BASE}/contents/generations/tasks/{task_id}"
+    poll_headers = {"Authorization": f"Bearer {ARK_API_KEY}"}
+    deadline = time.monotonic() + SHOT_POLL_TIMEOUT
+
+    while time.monotonic() < deadline:
+        time.sleep(SHOT_POLL_INTERVAL)
+        try:
+            poll_req = urllib_request.Request(poll_url, headers=poll_headers, method="GET")
+            with urllib_request.urlopen(poll_req, timeout=15) as resp:
+                poll_data = json.loads(resp.read().decode("utf-8"))
+        except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError):
+            continue  # transient; keep polling
+
+        status = (poll_data.get("status") or "").lower()
+
+        if status in ("succeeded", "completed"):
+            video_url = (
+                poll_data.get("content", {}).get("video_url")
+                or poll_data.get("output", {}).get("video_url")
+                or poll_data.get("video_url")
+            )
+            if not video_url:
+                return False, "succeeded but no video_url in response"
+            try:
+                dl_req = urllib_request.Request(video_url, method="GET")
+                with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
+                    clip_path.write_bytes(dl_resp.read())
+                return True, "ok"
+            except (urllib_error.URLError, OSError) as exc:
+                return False, f"Download failed: {exc}"
+
+        elif status in ("failed", "cancelled", "expired", "error"):
+            err = poll_data.get("error") or {}
+            return False, f"Task {status}: {err.get('message', 'no details')}"
+
+        # still queued/running — keep polling
+
+    return False, f"Timed out after {SHOT_POLL_TIMEOUT}s waiting for task {task_id}"
+
+
+def render_shots(job_id, shots, config):
+    """
+    Render each shot via Seedance 2.0 on ModelArk.
+    Processes shots sequentially with a 1-second gap to respect QPS=2.
+
+    Returns a tuple: (clips, shot_log)
+      clips    — list of (Path, duration) for successfully rendered shots, in order
+      shot_log — list of dicts with per-shot outcome for params_json storage
+
+    If zero shots succeed, clips is [].
+    If some shots fail/timeout, we stitch what we have and record the failures.
+    """
+    clips = []
+    shot_log = []
+
+    for shot in shots:
+        clip_path = OUTPUT_DIR / f"{job_id}-shot-{shot['index']:03d}.mp4"
+        ok, reason = call_video_model(shot, config, clip_path)
+        entry = {
+            "index": shot["index"],
+            "duration": shot["duration"],
+            "status": "ok" if ok else "failed",
+            "reason": reason,
+        }
+        shot_log.append(entry)
+        if ok:
+            clips.append((clip_path, shot["duration"]))
+        else:
+            # Log the failure but keep going — partial output is better than nothing
+            pass
+        time.sleep(1)  # respect QPS=2
+
+    return clips, shot_log
+
+
+def stitch_shots(shot_clips, output_path, config):
+    """
+    Concatenate shot clips into a single MP4 using ffmpeg concat demuxer.
+    shot_clips: list of (Path, duration_seconds) tuples.
+    Returns True on success, False on failure.
+    """
+    if not shot_clips:
+        return False
+    concat_list_path = output_path.parent / f"{output_path.stem}-concat.txt"
+    try:
+        lines = [f"file '{clip_path.resolve()}'\n" for clip_path, _ in shot_clips]
+        concat_list_path.write_text("".join(lines), encoding="utf-8")
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_list_path),
+            "-c", "copy",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    finally:
+        if concat_list_path.exists():
+            concat_list_path.unlink(missing_ok=True)
 
 
 def create_job_record(user_id, original_filename, config, storyboard_text):
@@ -723,7 +978,7 @@ def session_status():
                 "default_video_model": settings["default_video_model"],
             },
             "catalog": MODEL_CATALOG,
-            "openrouter_ready": bool(OPENROUTER_API_KEY),
+            "ark_ready": bool(ARK_API_KEY),
         }
     )
 
@@ -947,7 +1202,6 @@ def admin_overview():
                 "allow_signup": bool(settings["allow_signup"]),
                 "margin_multiplier": float(settings["margin_multiplier"]),
                 "signup_bonus_credits": float(settings["signup_bonus_credits"]),
-                "base_job_credits": float(settings["base_job_credits"]),
                 "default_planner_model": settings["default_planner_model"],
                 "default_video_model": settings["default_video_model"],
             },
@@ -999,15 +1253,11 @@ def admin_settings():
     save_setting("allow_signup", bool(payload.get("allow_signup")))
     save_setting(
         "margin_multiplier",
-        clamp_float(payload.get("margin_multiplier"), 1.35, 0.5, 5.0),
+        clamp_float(payload.get("margin_multiplier"), 1.5, 0.5, 5.0),
     )
     save_setting(
         "signup_bonus_credits",
         clamp_float(payload.get("signup_bonus_credits"), 120.0, 0.0, 5000.0),
-    )
-    save_setting(
-        "base_job_credits",
-        clamp_float(payload.get("base_job_credits"), 18.0, 1.0, 500.0),
     )
     if payload.get("default_planner_model"):
         save_setting("default_planner_model", payload["default_planner_model"])
