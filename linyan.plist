@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.openclaw.linyan</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Volumes/MyData/.openclaw/workspace-anthony/linyan/run_linyan.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Volumes/MyData/.openclaw/workspace-anthony/linyan</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>DATABASE_URL</key>
+        <string>postgresql://mengwee:hoccisFau8899!@localhost:5432/yourdb</string>
+        <key>ARK_API_KEY</key>
+        <string>ark-07…f689</string>
+        <key>ARK_API_BASE</key>
+        <string>https://ark.ap-southeast.bytepluses.com/api/v3</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Volumes/MyData/.openclaw/workspace-anthony/linyan/logs/linyan.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Volumes/MyData/.openclaw/workspace-anthony/linyan/logs/linyan-error.log</string>
+</dict>
+</plist>
