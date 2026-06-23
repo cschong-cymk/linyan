@@ -14,9 +14,9 @@
       --mol-page:    #ede8dc;
       --mol-line:    #d8d0c0;
       --mol-ink:     #1e1a14;
-      --mol-mid:     #5a4e38;
-      --mol-muted:   #8c7d62;
-      --mol-ghost:   #b8a888;
+      --mol-mid:     #453a23;
+      --mol-muted:   #685a3a;
+      --mol-ghost:   #897748;
       /* Accuphase side */
       --acc-body:    #2a2218;
       --acc-fascia:  #c8bc9a;
@@ -25,7 +25,7 @@
       --acc-dark:    #1e1810;
       --acc-amber:   #e8a020;
       --acc-amber2:  #f0b840;
-      --acc-amber-dim:#7a5010;
+      --acc-amber-dim:#a8741c;
       --acc-label:   #3a3020;
       --acc-needle:  #c84820;
       --acc-glass:   rgba(20,16,8,0.85);
@@ -41,7 +41,7 @@
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     html{scroll-behavior:smooth;}
-    body{font-family:var(--sans);font-size:14px;font-weight:300;line-height:1.7;background:var(--acc-dark);min-height:100vh;overflow-x:hidden;}
+    body{font-family:var(--sans);font-size:15.5px;font-weight:400;line-height:1.7;background:var(--acc-dark);min-height:100vh;overflow-x:hidden;}
 
     /* ══ TOPBAR — wooden Accuphase fascia ══ */
     .topbar{
@@ -411,6 +411,46 @@
       .topbar { padding: 10px 16px; }
       .moleskine { padding: 24px 16px 56px; }
     }
+
+    /* ═══════════ LEGIBILITY PASS — larger type, stronger contrast ═══════════ */
+    /* Moleskine side: bump micro-labels to readable sizes */
+    .mol-eyebrow{font-size:12px;}
+    .story-textarea{font-size:17px;}
+    .story-meta{font-size:12px;}
+    .file-label{font-size:11px;}
+    .mode-btn{font-size:11px;}
+    .fn-label{font-size:11px;opacity:1;}
+    .fn-select,.fn-input{font-size:15px;}
+    .fn-checkbox-row span{font-size:14px;}
+    .je-title{font-size:16px;}
+    .je-date,.je-sub,.je-credits,.je-dl{font-size:12px;}
+    .workspace-meta{font-size:13px;}
+    .mol-divider-label{font-size:11px;}
+    .film-counter{font-size:12px;}
+    /* topbar */
+    .logo-en{font-size:11px;}
+    .input-sel{font-size:11px;}
+    .topbar-btn{font-size:11px;color:#bfa066;}
+    .topbar-btn:hover{color:var(--acc-amber);}
+    .vu-mini-label{font-size:11px;}
+    .vu-val{font-size:13px;}
+    /* Accuphase side: bigger hardware labels + brighter amber so it reads on dark glass */
+    .fascia-label{font-size:11px;opacity:0.95;color:#241d10;}
+    .vu-title{font-size:11px;color:rgba(240,182,72,0.9);}
+    .vu-reading{font-size:20px;}
+    .vu-unit{font-size:11px;color:rgba(240,182,72,0.65);}
+    .vu-scale{font-size:10px;color:rgba(240,182,72,0.6);}
+    .dial-label{font-size:11px;opacity:1;color:#241d10;}
+    .dial-val{font-size:13px;}
+    .sel-btn{font-size:11px;color:rgba(240,182,72,0.7);}
+    .sel-btn:hover:not(.active){color:rgba(240,182,72,0.95);}
+    .sel-sub{font-size:10px;}
+    .render-btn{font-size:13px;}
+    .render-btn-sub{font-size:10px;}
+    .quote-lbl{font-size:11px;color:rgba(240,182,72,0.75);}
+    .quote-amt{font-size:20px;}
+    .quote-meta{font-size:11px;color:rgba(240,182,72,0.6);}
+    .vu-bar.lit{background:var(--acc-amber);}
   </style>
 </head>
 <body>
@@ -846,6 +886,21 @@
     }
 
     // model selector banks
+    var FAST_VIDEO_MODELS = ['dreamina-seedance-2-0-fast-260128'];
+
+    function applyVideoModelResolutionLock(modelId) {
+      var resEl = document.getElementById('resolution');
+      if (!resEl) return;
+      if (FAST_VIDEO_MODELS.indexOf(modelId) !== -1) {
+        resEl.value = '720p';
+        resEl.disabled = true;
+        resEl.title = 'Locked to 720p for fast model';
+      } else {
+        resEl.disabled = false;
+        resEl.title = '';
+      }
+    }
+
     function buildBank(containerId, models, defaultVal, onChange) {
       var wrap = document.getElementById(containerId);
       wrap.innerHTML = '';
@@ -857,6 +912,9 @@
           wrap.querySelectorAll('.sel-btn').forEach(function(b){b.classList.remove('active');});
           btn.classList.add('active');
           onChange(m.id);
+          if (containerId === 'video-bank') {
+            applyVideoModelResolutionLock(m.id);
+          }
           refreshQuote();
         };
         wrap.appendChild(btn);
@@ -879,6 +937,8 @@
       // store model ids on buttons
       document.querySelectorAll('#planner-bank .sel-btn').forEach(function(b,i){ b._modelId = c.planner_models[i].id; });
       document.querySelectorAll('#video-bank .sel-btn').forEach(function(b,i){ b._modelId = c.video_models[i].id; });
+      // apply resolution lock if default video model is a fast model
+      applyVideoModelResolutionLock(s.default_video_model);
       // voice
       var vs = document.getElementById('voice-model');
       vs.innerHTML = '';
@@ -1069,24 +1129,61 @@
       window.location.href='/';
     });
 
+    function applySession(s){
+      state.session=s;
+      populateCatalog();
+      initDials();
+      var u=s.user;
+      document.getElementById('workspace-section').style.display='';
+      document.getElementById('workspace-name').textContent=u.display_name;
+      document.getElementById('workspace-email').textContent=u.email;
+      document.getElementById('topbar-name-btn').textContent=u.display_name;
+      updateVU(u.credit_balance);
+      document.getElementById('vu-unit').textContent=s.settings.credit_label.split(' ')[0];
+    }
+
+    // Sample data used only when no backend is reachable (e.g. static preview).
+    var DEMO_SESSION = {
+      user:{ display_name:'Demo Studio', email:'preview@linyan.studio', credit_balance:312 },
+      settings:{ default_planner_model:'plan/atlas', default_video_model:'vid/seedance', credit_label:'credits', margin_multiplier:1.35 },
+      catalog:{
+        planner_models:[
+          {id:'plan/atlas',label:'Atlas Planner',summary:'Structured shot lists',recommended:true,provider:'ByteDance',cost_factor:1.0},
+          {id:'plan/muse',label:'Muse Lite',summary:'Fast drafts',provider:'ByteDance',cost_factor:0.6},
+          {id:'plan/glm-4.7',label:'GLM 4.7',summary:'Long-context scene planning',provider:'Zhipu AI',cost_factor:1.1}
+        ],
+        video_models:[
+          {id:'vid/seedance',label:'Seedance Pro',summary:'Cinematic 1080p',recommended:true,provider:'ByteDance',cost_factor:2.0},
+          {id:'vid/seedance-lite',label:'Seedance Lite',summary:'Preview grade',provider:'ByteDance',cost_factor:1.0}
+        ],
+        voice_models:[{id:'none',label:'No narration'},{id:'v/aria',label:'Aria — warm'}]
+      }
+    };
+    var DEMO_JOBS = [
+      {id:1,title:'Tea house at dawn',planner_model:'plan/atlas',video_model:'vid/seedance',status:'completed',estimated_credits:42.0,created_at:'2026-06-20',download_url:'#',output_kind:'mp4'},
+      {id:2,title:'Neon alley chase',planner_model:'plan/muse',video_model:'vid/seedance-lite',status:'rendering',estimated_credits:28.5,created_at:'2026-06-22'}
+    ];
+
+    function enterDemo(){
+      applySession(DEMO_SESSION);
+      state.jobs=DEMO_JOBS.slice();
+      renderJournal();
+      updateFilmCounter(state.jobs.length);
+      var qv=document.getElementById('quote-value'); if(qv)qv.textContent='42.0 cr';
+      var qm=document.getElementById('quote-meta'); if(qm)qm.textContent='Flowdaptor · ×1.35';
+      showFlash('warn','Preview mode — not connected to a backend. Showing sample data.');
+    }
+
     async function boot(){
       try{
         var s=await jsonFetch('/api/session',{method:'GET'});
         if(!s.user){window.location.href='/';return;}
-        state.session=s;
-        populateCatalog();
-        initDials();
-        var u=s.user;
-        document.getElementById('workspace-section').style.display='';
-        document.getElementById('workspace-name').textContent=u.display_name;
-        document.getElementById('workspace-email').textContent=u.email;
-        document.getElementById('topbar-name-btn').textContent=u.display_name;
-        updateVU(u.credit_balance);
-        document.getElementById('vu-unit').textContent=s.settings.credit_label.split(' ')[0];
+        applySession(s);
         await refreshJobs();
         await refreshQuote();
       }catch(err){
-        window.location.href='/';
+        // Backend unreachable (static preview) — render a demo studio instead of a blank redirect.
+        enterDemo();
       }
     }
     boot();

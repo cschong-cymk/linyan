@@ -18,8 +18,8 @@
       --line2:   rgba(200,170,220,0.22);
       --ink:     #f2eef8;
       --mid:     #c8bce0;
-      --muted:   #9080b0;
-      --ghost:   #5e5078;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
       --violet:  #a78bfa;
       --lavender:#c4b5fd;
       --mauve:   #e879f9;
@@ -41,7 +41,7 @@
 
     body {
       font-family: var(--sans);
-      font-size: 15px; font-weight: 300; line-height: 1.7;
+      font-size: 16px; font-weight: 400; line-height: 1.7;
       color: var(--ink); background: var(--void); min-height: 100vh;
       overflow-x: hidden;
     }
@@ -211,13 +211,13 @@
 
     /* ── sticky nav ── */
     .snav-link {
-      padding: 6px 14px; font-size: 12px; letter-spacing: 0.1em;
-      text-transform: uppercase; color: #9c7d5c; text-decoration: none;
+      padding: 6px 14px; font-size: 13px; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #b3a6cc; text-decoration: none;
       border-radius: 5px; transition: background 0.15s, color 0.15s;
       font-family: sans-serif; font-weight: 400;
     }
-    .snav-link:hover { background: #e5d7bf; color: #2e2318; }
-    .snav-link.active { background: rgba(184,115,51,0.12); color: #b87333; }
+    .snav-link:hover { background: rgba(200,170,220,0.12); color: #f2eef8; }
+    .snav-link.active { background: rgba(167,139,250,0.18); color: #c4b5fd; }
 
     /* ── main shell ── */
     .shell {
@@ -468,8 +468,8 @@
       --line2:   rgba(200,170,220,0.22);
       --ink:     #f2eef8;
       --mid:     #c8bce0;
-      --muted:   #9080b0;
-      --ghost:   #5e5078;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
       --violet:  #a78bfa;
       --lavender:#c4b5fd;
       --sakura:  #f9a8c9;
@@ -700,6 +700,39 @@
       }
       .topbar .byte-badge { width: 100%; }
     }
+
+    /* ═══════════ LEGIBILITY PASS — larger type, stronger contrast ═══════════ */
+    .hero-kicker{font-size:12px;}
+    .hero-sub{font-size:16px;color:var(--mid);}
+    .pipe-num{font-size:11px;}
+    .pipe-label{font-size:15px;}
+    .pipe-sub{font-size:12px;}
+    .topbar-meta{font-size:13px;}
+    .byte-badge{font-size:12px;}
+    .section-label{font-size:12px;}
+    label{font-size:12px;}
+    .stat-label{font-size:12px;}
+    .stat-val{font-size:18px;}
+    .checkbox-row{font-size:14px;}
+    .range-meta{font-size:12px;}
+    .input-tab{font-size:12px;}
+    table{font-size:14px;}
+    th{font-size:11px;}
+    .badge{font-size:11px;}
+    .side-note,.side-note .small,.tip-list li{font-size:14px;}
+    .side-note-title{font-size:12px;}
+    .warn-strip{font-size:13px;}
+    .quote-label{font-size:12px;}
+    .quote-meta{font-size:13px;}
+    .scroll-cue{font-size:12px;}
+    .workspace-email{font-size:14px;}
+    .small{font-size:13px;}
+    /* brighten the dimmest shell labels so they clear AA on the dark surface */
+    .shell .stat-label,.shell .quote-label,.shell .quote-meta,.shell .range-meta,
+    .shell .pipe-num,.shell .pipe-sub,.shell th,.shell .side-note-title,
+    .shell .workspace-email,.shell .badge-dim{color:#b3a6cc;}
+    .shell .input-tab{color:#b3a6cc;}
+    .shell input::placeholder,.shell textarea::placeholder{color:#7d70a0;}
   </style>
 </head>
 <body>
@@ -821,28 +854,28 @@
 
   <!-- ══ APP SHELL ══ -->
 
-  <!-- gradient bridge from dark hero → warm shell -->
-  <div style="height:80px;background:linear-gradient(180deg,#0d0b13 0%,#f6f1e8 100%);"></div>
+  <!-- gradient bridge from dark hero → dark shell -->
+  <div style="height:80px;background:linear-gradient(180deg,#0d0b13 0%,#100d1a 100%);"></div>
 
   <!-- sticky nav — only visible after scrolling into shell -->
   <nav id="sticky-nav" style="
     position:sticky;top:0;z-index:100;
-    background:#f6f1e8;border-bottom:1px solid #d6c4a8;
+    background:rgba(19,16,32,0.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(200,170,220,0.16);
     padding:0 48px;
     display:flex;align-items:center;gap:4px;
     height:52px;
     transform:translateY(-100%);
     transition:transform 0.25s ease;
   ">
-    <div style="font-family:'Noto Serif SC',serif;font-size:15px;color:#6e5640;font-weight:400;letter-spacing:0.1em;margin-right:auto;">琳嫣</div>
+    <div style="font-family:'Noto Serif SC',serif;font-size:17px;color:#e9e3f5;font-weight:400;letter-spacing:0.1em;margin-right:auto;">琳嫣</div>
     <a class="snav-link" href="#auth-panel" id="snav-access">Access</a>
     <a class="snav-link hidden" href="#workspace-panel" id="snav-workspace">Workspace</a>
     <a class="snav-link hidden" href="#studio-panel" id="snav-studio">Studio</a>
     <a class="snav-link hidden" href="#admin-panel" id="snav-admin">Admin</a>
     <button id="nav-logout" class="hidden" style="
-      margin-left:16px;padding:6px 14px;font-size:11px;letter-spacing:0.1em;
-      background:transparent;border:1px solid #c2a882;border-radius:6px;
-      color:#9c7d5c;cursor:pointer;font-family:sans-serif;
+      margin-left:16px;padding:6px 14px;font-size:12px;letter-spacing:0.1em;
+      background:transparent;border:1px solid rgba(200,170,220,0.3);border-radius:6px;
+      color:#c4b5fd;cursor:pointer;font-family:sans-serif;
     ">Sign out</button>
   </nav>
 
@@ -854,9 +887,9 @@
     <!-- access -->
     <section class="section" id="auth-panel">
       <div style="text-align:center;padding:48px 0 32px;">
-        <p style="font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#b87333;margin-bottom:12px;">Begin here</p>
-        <h2 style="font-family:'Noto Serif SC',serif;font-size:2rem;font-weight:300;color:#2e2318;letter-spacing:0.04em;margin-bottom:10px;">Your studio awaits</h2>
-        <p style="font-size:14px;color:#9c7d5c;max-width:380px;margin:0 auto;">Sign in to start turning stories into video. First account becomes host admin.</p>
+        <p style="font-size:12px;letter-spacing:0.22em;text-transform:uppercase;color:var(--sakura);margin-bottom:12px;">Begin here</p>
+        <h2 style="font-family:'Noto Serif SC',serif;font-size:2.2rem;font-weight:400;color:#f2eef8;letter-spacing:0.04em;margin-bottom:10px;">Your studio awaits</h2>
+        <p style="font-size:15px;color:#c8bce0;max-width:400px;margin:0 auto;line-height:1.7;">Sign in to start turning stories into video. First account becomes host admin.</p>
       </div>
       <div class="section-rule"><span class="section-label">Access</span><span class="section-line"></span></div>
       <div class="card">
@@ -1154,7 +1187,7 @@
     function renderPublicPanel(){
       var s=state.session;
       document.getElementById("dot-router").className="dot"+(s.openrouter_ready?" ok":" warn");
-      document.getElementById("lbl-router").textContent=s.openrouter_ready?"planner connected":"planner — no key";
+      document.getElementById("lbl-router").textContent="planner";
       document.getElementById("dot-signup").className="dot"+(s.settings.allow_signup?" ok":"");
       document.getElementById("lbl-signup").textContent=s.settings.allow_signup?"signup open":"signup closed";
       document.getElementById("lbl-model").textContent=s.settings.default_video_model.split("/").pop();
@@ -1234,6 +1267,30 @@
       navLogout.addEventListener("click", function(){
         document.getElementById("logout-button").click();
       });
+
+      // ── Mobile hamburger menu ──
+      var navToggle = document.getElementById("navToggle");
+      var heroTopbar = navToggle ? navToggle.closest(".topbar") : null;
+      if (navToggle && heroTopbar) {
+        navToggle.addEventListener("click", function(){
+          var open = heroTopbar.classList.toggle("nav-open");
+          navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+        });
+        // Close the panel after tapping anything inside it
+        heroTopbar.querySelectorAll(".topbar-right a, .topbar-right button").forEach(function(el){
+          el.addEventListener("click", function(){
+            heroTopbar.classList.remove("nav-open");
+            navToggle.setAttribute("aria-expanded", "false");
+          });
+        });
+        // Reset when returning to desktop width
+        window.addEventListener("resize", function(){
+          if (window.innerWidth > 768) {
+            heroTopbar.classList.remove("nav-open");
+            navToggle.setAttribute("aria-expanded", "false");
+          }
+        });
+      }
 
       // Show/hide nav when shell enters viewport
       var io = new IntersectionObserver(function(entries){

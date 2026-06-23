@@ -1,4 +1,6 @@
-﻿import json
+from dotenv import load_dotenv
+load_dotenv()
+import json
 import os
 import shutil
 import threading
@@ -60,19 +62,20 @@ MODEL_CATALOG = {
             "summary": "Fast story breakdown and shot planning.",
         },
         {
-            "id": "seed-1-6-250915",
-            "label": "Seed 1.6",
-            "family": "ark",
-            "recommended": False,
-            "summary": "Stronger scene logic, more costly.",
-        },
-        {
             "id": "seed-1-8-251228",
             "label": "Seed 1.8",
             "family": "ark",
             "recommended": False,
             "summary": "Deep reasoning mode; best for complex multi-scene storyboards.",
         },
+{
+    "id": "glm-4-7-251222",
+    "label": "GLM-4.7",
+    "family": "ark",
+    "recommended": False,
+    "summary": "Long-context scene planning.",
+    "cost_factor": 1.1,
+},
     ],
     "video_models": [
         {
@@ -372,7 +375,9 @@ def normalize_config(raw_config, settings):
         "planner_model": raw_config.get("planner_model") or settings["default_planner_model"],
         "video_model": raw_config.get("video_model") or settings["default_video_model"],
         "aspect_ratio": raw_config.get("aspect_ratio") or "16:9",
-        "resolution": raw_config.get("resolution") or "1080p",
+       
+"video_model": raw_config.get("video_model") or settings["default_video_model"],
+"resolution": raw_config.get("resolution") or ("720p" if "fast" in (raw_config.get("video_model") or settings["default_video_model"]) else "1080p"),
         "style_preset": raw_config.get("style_preset") or "Cinematic realism",
         "voice_model": raw_config.get("voice_model") or "none",
         "narration_enabled": bool(raw_config.get("narration_enabled")),
