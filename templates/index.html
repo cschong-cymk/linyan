@@ -870,7 +870,7 @@
     <div style="font-family:'Noto Serif SC',serif;font-size:17px;color:#e9e3f5;font-weight:400;letter-spacing:0.1em;margin-right:auto;">琳嫣</div>
     <a class="snav-link" href="#auth-panel" id="snav-access">Access</a>
     <a class="snav-link hidden" href="#workspace-panel" id="snav-workspace">Workspace</a>
-    <a class="snav-link hidden" href="#studio-panel" id="snav-studio">Studio</a>
+    <a class="snav-link hidden" href="/studio" id="snav-studio">Studio</a>
     <a class="snav-link hidden" href="#admin-panel" id="snav-admin">Admin</a>
     <button id="nav-logout" class="hidden" style="
       margin-left:16px;padding:6px 14px;font-size:12px;letter-spacing:0.1em;
@@ -1300,11 +1300,13 @@
       }, {threshold: 0.02});
       io.observe(shell);
 
-      // Highlight active section by scroll position
+      // Highlight active section by scroll position.
+      // Note: "Studio" isn't in this list — it links to the separate /studio
+      // page now (see snav-studio above), so there's no in-page section to
+      // scroll-spy against.
       var sections = [
         {id:"auth-panel",      link:"snav-access"},
         {id:"workspace-panel", link:"snav-workspace"},
-        {id:"studio-panel",    link:"snav-studio"},
         {id:"admin-panel",     link:"snav-admin"},
       ];
       window.addEventListener("scroll", function(){
@@ -1336,6 +1338,15 @@
         var cue = document.getElementById("hero-signin-cue");
         if(cta) cta.style.display = loggedIn ? "block" : "none";
         if(cue) cue.style.display = loggedIn ? "none" : "flex";
+        // Deep-link support for arriving at /#admin-panel from the Studio
+        // page's Admin link: #admin-panel is display:none until this async
+        // session check reveals it, so the browser's native on-load anchor
+        // scroll happens too early and lands at the top of the page instead.
+        // Retry the scroll here, now that the section is actually visible.
+        if (isAdmin && window.location.hash === "#admin-panel") {
+          var target = document.getElementById("admin-panel");
+          if (target) target.scrollIntoView({behavior: "smooth", block: "start"});
+        }
       };
     })();
   </script>

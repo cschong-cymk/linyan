@@ -29,32 +29,17 @@ DATA_DIR = APP_ROOT / "data"
 ASSETS_DIR = APP_ROOT / "assets"
 UPLOAD_DIR = DATA_DIR / "uploads"
 OUTPUT_DIR = DATA_DIR / "outputs"
-CHARACTER_DIR = DATA_DIR / "characters"
 DATA_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(exist_ok=True)
 OUTPUT_DIR.mkdir(exist_ok=True)
-CHARACTER_DIR.mkdir(exist_ok=True)
 
 APP_SECRET = os.environ.get("LINYAN_SECRET_KEY", "linyan-dev-secret-change-me")
 DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgres://postgres:postgres@localhost:5432/flask"
 )
-# ModelArk (BytePlus Ark) — used for planning, video generation, and now
-# character reference images (rendered via the same video endpoint — see
-# generate_character_reference_image).
+# ModelArk (BytePlus Ark) — used for both planning and video generation
 ARK_API_KEY = os.environ.get("ARK_API_KEY")
 ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
-
-# Public, internet-reachable base URL for this app (e.g. https://linyan.io).
-# Required because ModelArk's servers — not the user's browser — fetch the
-# reference image URL we hand them when rendering a shot. A localhost or
-# private URL is unreachable from their side and will just fail every shot
-# silently. Left empty by default for the same reason: no guessing. Bare
-# domains (e.g. "linyan.io" with no scheme) are normalized to https:// rather
-# than silently producing a malformed URL.
-PUBLIC_BASE_URL = os.environ.get("LINYAN_PUBLIC_BASE_URL", "").rstrip("/")
-if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
-    PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
 
 # How long to poll for a single shot clip before giving up (seconds)
 SHOT_POLL_TIMEOUT = int(os.environ.get("SHOT_POLL_TIMEOUT", "600"))
@@ -66,12 +51,6 @@ ASPECT_PRESETS = {
     "1:1": (1080, 1080),
     "4:5": (864, 1080),
 }
-
-# Duration of the throwaway clip rendered per character for reference-image
-# extraction (see generate_character_reference_image). Shared with
-# estimate_job_cost, which prices that render in — it's a real Seedance call,
-# not a freebie.
-REFERENCE_CLIP_DURATION = 4   # Seedance's minimum valid duration — cheapest still-frame source
 
 MODEL_CATALOG = {
     "planner_models": [
@@ -129,10 +108,6 @@ DEFAULT_SETTINGS = {
     "credit_label": "Linyan credits",
     "default_planner_model": "seed-2-0-lite-260228",
     "default_video_model": "dreamina-seedance-2-0-260128",
-    # Used only when the real character count isn't known yet (pre-planning
-    # quotes and the upfront balance check) — see estimate_job_cost. This is a
-    # guess, admin-tunable, not a measurement.
-    "quote_character_assumption": 2,
 }
 
 # Linux container font candidates (macOS paths removed)
@@ -172,23 +147,6 @@ def assets(filename):
     explicit route. send_from_directory keeps it safe against path traversal.
     """
     return send_from_directory(ASSETS_DIR, filename)
-
-
-@app.route("/character-refs/<path:filename>")
-def character_refs(filename):
-    """Serve generated character reference images.
-
-    Deliberately unauthenticated: ModelArk's servers fetch this URL directly
-    when rendering a shot, and they carry no session cookie, so a login_required
-    decorator here would just make every shot fail. This mirrors the existing
-    /assets/<filename> trust model. Filenames are job-id + random-suffix based
-    (see generate_character_reference_image), not derived from anything a
-    different user controls, but note this does mean: anyone who obtains one of
-    these URLs can view that reference image without authenticating. Acceptable
-    for AI-generated character portraits; flag it if storyboards ever contain
-    anything more sensitive than that.
-    """
-    return send_from_directory(CHARACTER_DIR, filename)
 
 
 def now_iso():
@@ -437,7 +395,7 @@ def normalize_config(raw_config, settings):
     return config
 
 
-def estimate_job_cost(config, settings, character_count=None):
+def estimate_job_cost(config, settings):
     """
     Estimate job cost in Linyan credits based on real Seedance 2.0 published rates.
 
@@ -445,28 +403,8 @@ def estimate_job_cost(config, settings, character_count=None):
       dreamina-seedance-2-0-260128       (Standard, 1080p): $0.05–$0.10  → midpoint $0.075/s
       dreamina-seedance-2-0-fast-260128  (Fast,     720p):  $0.01–$0.02  → midpoint $0.015/s
 
-    1 Linyan credit = $0.01 USD. Margin multiplier applied on top (default 1.5 = 50% margin).
-
-    Two billed components, both priced at the job's own per-second rate, because
-    a character reference is now literally a REFERENCE_CLIP_DURATION-second
-    video render (see generate_character_reference_image), not a separate,
-    separately-priced image call:
-      1. target_duration seconds for the final video.
-      2. REFERENCE_CLIP_DURATION seconds per named character.
-
-    character_count has two different levels of truth depending on the caller,
-    and that distinction matters — don't blur it:
-      - None (the default): character extraction is an LLM step the planner
-        hasn't run yet, so there is no real count available. Falls back to
-        settings["quote_character_assumption"] — an admin-tunable GUESS. Used
-        by /api/quote (shown before any storyboard is even uploaded) and by
-        the upfront balance gate in create_job_record (before planning runs).
-        Treat any number this produces as an estimate range, not a bill.
-      - An explicit int: the real, measured count from
-        len(planner["characters"]) after call_planner has actually run. Used
-        by run_job_async to recompute the TRUE cost and re-check the user's
-        balance before rendering any shots, and to charge that real number —
-        not the pre-planning guess — on success.
+    1 Linyan credit = $0.01 USD
+    Margin multiplier applied on top (default 1.5 = 50% margin).
     """
     SEEDANCE_USD_PER_SECOND = {
         "dreamina-seedance-2-0-260128":      0.075,
@@ -477,15 +415,11 @@ def estimate_job_cost(config, settings, character_count=None):
     video_model = config["video_model"]
     usd_per_second = SEEDANCE_USD_PER_SECOND.get(video_model, 0.075)
     provider = "ark"
+
+    duration = config["target_duration"]
     margin = float(settings["margin_multiplier"])
 
-    if character_count is None:
-        character_count = clamp_int(settings.get("quote_character_assumption"), 2, 0, 20)
-
-    video_seconds = config["target_duration"]
-    reference_seconds = character_count * REFERENCE_CLIP_DURATION
-
-    raw_usd = usd_per_second * (video_seconds + reference_seconds)
+    raw_usd = usd_per_second * duration
     charged_usd = raw_usd * margin
     credits = charged_usd * CREDITS_PER_USD
 
@@ -560,286 +494,22 @@ def generate_placeholder_bundle(output_path, title, job_id, config, storyboard_t
         )
 
 
-def _find_character(name, character_bible):
-    """Case-insensitive character bible lookup. Returns (canonical_name, entry) or None.
-
-    Shared by lock_characters_into_prompt and call_video_model so both pick the
-    same character on a casing mismatch ("Mira" vs "mira") rather than disagreeing.
-    """
-    target = str(name).strip().lower()
-    for canonical_name, entry in character_bible.items():
-        if canonical_name.lower() == target:
-            return canonical_name, entry
-    return None
-
-
-def submit_and_poll_video_task(content, config, duration, timeout=None):
-    """
-    Low-level Ark video task submit + poll + download. Shared by call_video_model
-    (per-shot rendering) and generate_character_reference_image (a short clip
-    used purely as a source frame). This is the one request shape in this file
-    that's actually proven against your account — it's the same code path that
-    already renders real shots — so reusing it instead of inventing a second
-    schema is the whole point.
-
-    Returns (video_bytes, None) on success, or (None, reason_string) on failure.
-    Does not write to disk — callers decide where the bytes go.
-    """
-    if not ARK_API_KEY:
-        return None, "ARK_API_KEY not set"
-
-    payload = {
-        "model": config["video_model"],
-        "content": content,
-        "ratio": config["aspect_ratio"],
-        "resolution": config["resolution"],
-        "duration": duration,
-        "generate_audio": False,
-    }
-    submit_req = urllib_request.Request(
-        f"{ARK_API_BASE}/contents/generations/tasks",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {ARK_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib_request.urlopen(submit_req, timeout=30) as resp:
-            submit_data = json.loads(resp.read().decode("utf-8"))
-        task_id = submit_data.get("id") or submit_data.get("task_id")
-        if not task_id:
-            return None, f"No task_id in submit response: {submit_data}"
-    except urllib_error.HTTPError as exc:
-        return None, f"Submit HTTP {exc.code}: {exc.reason}"
-    except (urllib_error.URLError, json.JSONDecodeError) as exc:
-        return None, f"Submit error: {exc}"
-
-    poll_url = f"{ARK_API_BASE}/contents/generations/tasks/{task_id}"
-    poll_headers = {"Authorization": f"Bearer {ARK_API_KEY}"}
-    deadline = time.monotonic() + (timeout or SHOT_POLL_TIMEOUT)
-
-    while time.monotonic() < deadline:
-        time.sleep(SHOT_POLL_INTERVAL)
-        try:
-            poll_req = urllib_request.Request(poll_url, headers=poll_headers, method="GET")
-            with urllib_request.urlopen(poll_req, timeout=15) as resp:
-                poll_data = json.loads(resp.read().decode("utf-8"))
-        except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError):
-            continue  # transient; keep polling
-
-        status = (poll_data.get("status") or "").lower()
-
-        if status in ("succeeded", "completed"):
-            video_url = (
-                poll_data.get("content", {}).get("video_url")
-                or poll_data.get("output", {}).get("video_url")
-                or poll_data.get("video_url")
-            )
-            if not video_url:
-                return None, "succeeded but no video_url in response"
-            try:
-                dl_req = urllib_request.Request(video_url, method="GET")
-                with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
-                    return dl_resp.read(), None
-            except (urllib_error.URLError, OSError) as exc:
-                return None, f"Download failed: {exc}"
-
-        elif status in ("failed", "cancelled", "expired", "error"):
-            err = poll_data.get("error") or {}
-            return None, f"Task {status}: {err.get('message', 'no details')}"
-
-        # still queued/running — keep polling
-
-    return None, f"Timed out after {timeout or SHOT_POLL_TIMEOUT}s waiting for task {task_id}"
-
-
-REFERENCE_CLIP_SEEK = "1.5"   # seconds into the clip to grab a frame: past any startup motion, before any tail movement
-
-
-def generate_character_reference_image(job_id, name, description, config):
-    """
-    Generate one canonical reference portrait for a character by rendering a
-    short, mostly-static clip with the job's own Seedance video_model and
-    extracting a single frame from it with ffmpeg.
-
-    This is NOT a call to a separate image-generation endpoint. Seedance is a
-    video model — it doesn't do text-to-image — so there is no "use the same
-    Seedance model" path through an /images/generations-style endpoint; that
-    endpoint needs an actual image model id, which this deployment has none of.
-    Instead this renders a minimal clip through submit_and_poll_video_task —
-    the same request shape already proven by the real shot-rendering pipeline —
-    and pulls a frame out of it. No unverified API schema involved.
-
-    Trade-off, stated plainly: this costs more than a real image-generation call
-    would (you're paying for REFERENCE_CLIP_DURATION seconds of video generation
-    per character, not one image call), and it's slower (video submit+poll, not
-    a synchronous image response). It is still NOT counted in estimate_job_cost —
-    the billing gap flagged earlier, now slightly larger per named character.
-
-    Why re-host the extracted frame under our own /character-refs/ route rather
-    than just keeping the source clip around: a multi-shot job can run long
-    enough (each shot polls for up to SHOT_POLL_TIMEOUT seconds) that anything
-    Ark-hosted with a TTL could expire mid-job; re-hosting locally removes that
-    risk entirely, and it's the same reasoning as the original image-endpoint
-    version of this function had, just applied to a frame instead of an image.
-
-    Best-effort: returns a public https URL on success, or None on ANY failure
-    (missing config, generation failure, ffmpeg missing or failing). A None
-    result means that character renders with text-only consistency for this
-    job — it never blocks or fails the job itself.
-    """
-    if not ARK_API_KEY or not PUBLIC_BASE_URL:
-        return None
-
-    reference_prompt = (
-        "Character reference shot. Single subject standing still, facing the "
-        "camera, centered in frame, full figure visible, neutral plain "
-        "background, soft even studio lighting, minimal motion. "
-        f"{description}. Static locked-off camera, no camera movement."
-    )
-    content = [{"type": "text", "text": reference_prompt}]
-
-    video_bytes, _reason = submit_and_poll_video_task(content, config, REFERENCE_CLIP_DURATION)
-    if video_bytes is None:
-        return None
-
-    suffix = uuid.uuid4().hex[:8]
-    safe_name = secure_filename(name) or "character"
-    clip_path = CHARACTER_DIR / f"{job_id}-{safe_name}-{suffix}-ref-clip.mp4"
-    frame_path = CHARACTER_DIR / f"{job_id}-{safe_name}-{suffix}.png"
-    try:
-        clip_path.write_bytes(video_bytes)
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-ss", REFERENCE_CLIP_SEEK,
-                "-i", str(clip_path),
-                "-frames:v", "1",
-                "-q:v", "2",
-                str(frame_path),
-            ],
-            check=True, capture_output=True,
-        )
-        return f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return None
-    finally:
-        clip_path.unlink(missing_ok=True)
-
-
-def populate_character_reference_images(job_id, character_bible, config):
-    """
-    Generate and attach a reference image for every character in the bible.
-    Mutates character_bible's entries in place (same dict object the caller
-    already holds — e.g. planner["characters"] — so callers that captured a
-    reference to it before this runs will see the URLs appear without needing
-    it passed back).
-
-    Call this ONLY after confirming the job's real cost — which already
-    includes REFERENCE_CLIP_DURATION seconds of generation per character here
-    — is something the user can actually afford. Generating images before that
-    check, as an earlier version of this pipeline did, spends real render
-    money on jobs that then fail the balance check anyway, which is strictly
-    worse than just failing the balance check first.
-    """
-    for name, entry in character_bible.items():
-        entry["reference_image_url"] = generate_character_reference_image(
-            job_id, name, entry["description"], config
-        )
-        time.sleep(1)  # courtesy spacing between consecutive ARK calls
-    return character_bible
-
-
-def lock_characters_into_prompt(base_prompt, characters_in_shot, character_bible, consistency_strength):
-    """
-    Deterministically prepend each character's canonical description onto a shot
-    prompt, in code, every single time. This is the actual fix: we do not trust
-    the planner LLM to repeat itself with identical wording across N independent
-    JSON list items — it won't, reliably, especially on longer storyboards. By
-    enforcing it here, shot 1 and shot 12 get byte-identical character wording
-    even if the model's own phrasing drifted.
-
-    consistency_strength >= 0.5 (also the config default of 0.8): full verbatim
-      description repeated every shot. Use this whenever the same character must
-      look the same in every cut — which, per the request that built this, is the
-      whole point.
-    consistency_strength < 0.5: only the first clause of the description (treated
-      as a short identity anchor) is repeated, trading strict consistency for more
-      prompt variety shot to shot. Still always uses the same anchor wording.
-
-    Matching is case-insensitive against the bible (via _find_character), because
-    planner output drifts on casing ("Mira" vs "mira") far more often than it
-    drops a character outright.
-    """
-    if not characters_in_shot:
-        return base_prompt
-
-    blocks = []
-    for raw_name in characters_in_shot:
-        match = _find_character(raw_name, character_bible)
-        if not match:
-            # Planner referenced a character it never defined in the bible.
-            # Don't fail the whole job over it — render the shot without a lock
-            # rather than crash, but this should show up in shot_log for review.
-            continue
-        name, entry = match
-        description = entry["description"]
-        if consistency_strength >= 0.5:
-            blocks.append(f"{name} ({description})")
-        else:
-            anchor = description.split(".")[0].strip()
-            blocks.append(f"{name} ({anchor})")
-
-    if not blocks:
-        return base_prompt
-
-    character_clause = "Characters, rendered identically to every other shot: " + "; ".join(blocks) + "."
-    return f"{character_clause} {base_prompt}".strip()
-
-
 def call_planner(storyboard_text, config):
     """
     Call ModelArk (BytePlus Ark) chat completions to decompose a prose storyboard
     into a list of structured shots with durations that sum to target_duration.
 
-    Reality check on character consistency: Seedance shots are independent API
-    calls — the model has no memory of any other shot (see the system prompt
-    below). So the planner does two things instead of one:
-      1. Builds a "character bible" — one exhaustive, named description per
-         character, written once. reference_image_url starts as None here on
-         purpose: generating that image costs real money (see
-         generate_character_reference_image), and this function has no idea
-         yet whether the caller can actually afford the job once that cost is
-         included. Populating it is run_job_async's job, after it has
-         confirmed the real cost against the user's balance — see
-         populate_character_reference_images.
-      2. Tags which characters appear in each shot, then `lock_characters_into_prompt`
-         deterministically re-injects the exact description into every shot's
-         prompt in code, not just via LLM instruction-following. This part
-         only needs the text description, so it doesn't have to wait for step 1
-         of run_job_async's post-planning sequence.
-    Asking the model nicely to "stay consistent" (the original behavior) does
-    not survive a 10-shot JSON completion in practice; forcing identical
-    wording in code does much better, and combining it with a real reference
-    image (once generated) better still.
-
     Returns a dict:
       {
         "status": "ok" | "skipped" | "failed",
         "message": str,
-        "characters": {
-            name: {"description": str, "reference_image_url": None}, ...
-        },
         "shots": [
           {
-            "index": int,                  # 1-based
-            "duration": int,                # 4-15s (Seedance constraint)
-            "characters_in_shot": [str, ...],
-            "prompt": str,                  # visual prompt, character block already locked in
-            "camera": str,                  # camera move / framing note
-            "narration": str                # VO line or "" if none
+            "index": int,          # 1-based
+            "duration": int,       # 5 or 10 (Seedance constraint)
+            "prompt": str,         # rich visual prompt for the video model
+            "camera": str,         # camera move / framing note
+            "narration": str       # VO line or "" if none
           },
           ...
         ],
@@ -850,56 +520,38 @@ def call_planner(storyboard_text, config):
         return {
             "status": "skipped",
             "message": "ARK_API_KEY not configured.",
-            "characters": {},
             "shots": [],
             "plan_text": "",
         }
 
     # Decide reasonable shot count from target duration.
-    # Seedance supports clips from 4-15 s. We prefer ~5 s clips for tighter control,
-    # allowing longer only when the planner decides a scene needs more breathing room.
+    # Seedance supports 5 s and 10 s clips. We prefer 5 s clips for tighter control,
+    # allowing 10 s only when the planner decides a scene needs more breathing room.
     target = config["target_duration"]
     max_shots = max(1, target // 5)   # upper bound: one 5-second clip per slot
 
     system_prompt = textwrap.dedent("""
-        You are a professional video production planner working with a text-to-video
-        model that has NO memory between shots — every shot is generated from scratch,
-        independently, with no awareness of any other shot's output.
-
-        Step 1 — Build a character bible.
-        Identify every named or recurring character in the storyboard. For each one,
-        write ONE exhaustive physical description: age, build, hair, face, exact
-        clothing (including color), and any distinguishing props or features. Avoid
-        vague terms like "nice dress" — be specific enough that two different artists
-        reading only this description would draw the same person.
-
-        Step 2 — Break the story into shots.
+        You are a professional video production planner.
+        Your job is to decompose a prose storyboard into discrete video shots
+        that a text-to-video model will render one at a time.
         Each shot must have a duration between 4 and 15 seconds (integers only).
-        The total of all shot durations must not exceed the target duration. For each
-        shot, list which characters (by the exact same name used in the bible) appear
-        in it. Do NOT redescribe a character's physical appearance inside the shot's
-        `prompt` field — that gets attached automatically from the bible. The `prompt`
-        field should only describe setting, lighting, action, and composition.
-
+        The total of all shot durations must not exceed the target duration.
         Return ONLY valid JSON — no markdown fences, no commentary.
         The JSON must match this schema exactly:
         {
-          "characters": [
-            {"name": "<exact name, reused consistently>", "description": "<full canonical visual description>"}
-          ],
           "shots": [
             {
               "index": <integer, 1-based>,
-              "duration": <integer, 4-15>,
-              "characters_in_shot": ["<exact name from characters[]>", ...],
-              "prompt": "<setting, lighting, and action only — no character physical description>",
+              "duration": <5 or 10>,
+              "prompt": "<rich visual description for the video model>",
               "camera": "<camera movement and framing note>",
               "narration": "<voice-over line, or empty string if none>"
             }
           ]
         }
         Rules:
-        - Every name in characters_in_shot must exactly match a name in characters[].
+        - Prompt must be self-contained (the video model has no memory between shots).
+        - Describe characters, setting, lighting, and action in each prompt.
         - Keep narration lines short enough to fit the shot duration at normal speaking pace.
         - Do not reference shot numbers or metadata inside the prompt field.
     """).strip()
@@ -939,70 +591,31 @@ def call_planner(storyboard_text, config):
             data = json.loads(resp.read().decode("utf-8"))
         raw_json = data["choices"][0]["message"]["content"].strip()
         parsed = json.loads(raw_json)
-
-        character_bible = {}
-        for c in parsed.get("characters", []):
-            name = str(c.get("name", "")).strip()
-            desc = str(c.get("description", "")).strip()
-            if not (name and desc):
-                continue
-            character_bible[name] = {
-                "description": desc,
-                # Populated later by populate_character_reference_images, and
-                # only AFTER run_job_async has confirmed the real cost (which
-                # includes this generation) is something the user can actually
-                # afford. Generating it here, before that check, would spend
-                # real render money on jobs that fail the balance check anyway.
-                "reference_image_url": None,
-            }
-
         shots = parsed.get("shots", [])
         if not shots:
             raise ValueError("Planner returned zero shots.")
-
-        # Validate, clamp, and lock the character bible into each shot's prompt.
-        # Locking only needs the text description, not the (not-yet-generated)
-        # image, so this doesn't need to wait for populate_character_reference_images.
+        # Validate and clamp each shot
         clean_shots = []
         for i, s in enumerate(shots):
             duration = int(s.get("duration", 5))
             duration = max(4, min(15, duration))  # Seedance supports 4–15 s
-            characters_in_shot = [
-                str(n).strip() for n in s.get("characters_in_shot", []) if str(n).strip()
-            ]
-            base_prompt = str(s.get("prompt", "")).strip()
-            locked_prompt = lock_characters_into_prompt(
-                base_prompt,
-                characters_in_shot,
-                character_bible,
-                config["consistency_strength"],
-            )
             clean_shots.append({
                 "index": i + 1,
                 "duration": duration,
-                "characters_in_shot": characters_in_shot,
-                "prompt": locked_prompt,
+                "prompt": str(s.get("prompt", "")).strip(),
                 "camera": str(s.get("camera", "")).strip(),
                 "narration": str(s.get("narration", "")).strip(),
             })
         return {
             "status": "ok",
-            "message": (
-                f"Planner produced {len(clean_shots)} shots via ModelArk "
-                f"({len(character_bible)} character(s) identified for consistency "
-                f"locking; reference images generated separately once cost is confirmed)."
-            ),
-            "characters": character_bible,
+            "message": f"Planner produced {len(clean_shots)} shots via ModelArk.",
             "shots": clean_shots,
-            "plan_text": json.dumps(
-                {"characters": character_bible, "shots": clean_shots}, indent=2
-            ),
+            "plan_text": json.dumps({"shots": clean_shots}, indent=2),
         }
     except (urllib_error.HTTPError, urllib_error.URLError) as exc:
         return {
             "status": "failed",
             "message": f"ModelArk request failed: {exc}",
-            "characters": {},
             "shots": [],
             "plan_text": "",
         }
@@ -1010,7 +623,6 @@ def call_planner(storyboard_text, config):
         return {
             "status": "failed",
             "message": f"Planner response parse error: {exc}",
-            "characters": {},
             "shots": [],
             "plan_text": "",
         }
@@ -1034,20 +646,11 @@ def serialize_job(row):
     }
 
 
-def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard_path, estimated_credits):
-    """Runs in a background thread. Opens its own DB connection.
-
-    `estimated_credits` arrives as the pre-planning guess (assumption-based
-    character count — see estimate_job_cost). It gets reassigned below, once
-    the planner has actually run, to the real cost based on the real character
-    count. charge_credits() reads this name from its enclosing scope at call
-    time, so it always charges whatever this was last set to — the recomputed
-    real number, not the original guess — without needing `nonlocal`.
-    """
+def run_job_async(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits):
+    """Runs in a background thread. Opens its own DB connection."""
     db = new_connection()
 
-    def set_status(status, output_path=None, output_kind=None, plan_path=None,
-                    extra_params=None, new_estimated_credits=None):
+    def set_status(status, output_path=None, output_kind=None, plan_path=None, extra_params=None):
         cur = db.cursor()
         updates = ["status = %s", "updated_at = %s"]
         values = [status, now_iso()]
@@ -1057,9 +660,6 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         if plan_path:
             updates += ["render_plan_path = %s"]
             values += [str(plan_path)]
-        if new_estimated_credits is not None:
-            updates += ["estimated_credits = %s"]
-            values += [new_estimated_credits]
         values.append(job_id)
         cur.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = %s", values)
         if extra_params:
@@ -1118,57 +718,8 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
                 "planner_status": planner["status"],
                 "planner_message": planner["message"],
                 "shot_count": len(planner["shots"]),
-                "character_count": len(planner.get("characters", {})),
-                # No reference images yet at this point — see the note on
-                # populate_character_reference_images below for why. The
-                # character_bible entry here gets overwritten once images are
-                # actually populated (or once we know we're not generating any,
-                # e.g. PUBLIC_BASE_URL unset).
-                "character_bible": planner.get("characters", {}),
             },
         )
-
-        # ── Phase 1.5: True up the cost now that the real character count is
-        # known, and re-check the balance BEFORE spending any render money. ──
-        # The pre-planning estimate this job was created with used an
-        # admin-tunable guess (settings["quote_character_assumption"]); now
-        # that call_planner has actually run, charge what was actually going
-        # to happen instead. This also correctly charges LESS than the
-        # original guess when the planner skipped/failed (zero characters
-        # extracted, zero reference renders incurred) — recomputing here isn't
-        # one-directional, it's just accurate.
-        character_count = len(planner.get("characters", {}))
-        estimated_credits, _provider = estimate_job_cost(config, settings, character_count=character_count)
-
-        cur = db.cursor()
-        cur.execute("SELECT credit_balance FROM users WHERE id = %s", (user_id,))
-        current_balance = float(cur.fetchone()["credit_balance"])
-        if current_balance < estimated_credits:
-            raise RuntimeError(
-                f"Insufficient credits once the real character count was known "
-                f"({character_count} character(s) -> {estimated_credits} credits "
-                f"needed, {round(current_balance, 1)} available). No shots were "
-                f"rendered, no reference images were generated — failing before "
-                f"any render spend, not after."
-            )
-
-        set_status(
-            "rendering",
-            extra_params={"actual_estimated_credits": estimated_credits},
-            new_estimated_credits=estimated_credits,
-        )
-
-        # Only now — after confirming the user can actually afford the real
-        # cost — do we spend money generating reference images. This ordering
-        # is the whole point: an earlier version of this pipeline generated
-        # images inside call_planner, before any balance recheck, which meant
-        # a job could spend on N character renders and still fail the balance
-        # check immediately afterward. populate_character_reference_images
-        # mutates planner["characters"] in place, so render_shots below (which
-        # reads that same dict) sees the populated URLs automatically.
-        if planner.get("characters"):
-            populate_character_reference_images(job_id, planner["characters"], config)
-            set_status("rendering", extra_params={"character_bible": planner["characters"]})
 
         # ── Phase 2 & 3: Render shots then stitch ───────────────────────────
         # If planner succeeded and we have real shots, attempt real rendering.
@@ -1178,9 +729,7 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         rendered_ok = False
 
         if planner["status"] == "ok" and planner["shots"]:
-            clips, shot_log = render_shots(
-                job_id, planner["shots"], config, planner.get("characters", {})
-            )
+            clips, shot_log = render_shots(job_id, planner["shots"], config)
             set_status("rendering", extra_params={"shot_log": shot_log})
             if clips:
                 stitch_ok = stitch_shots(clips, output_path, config)
@@ -1214,31 +763,14 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         db.close()
 
 
-def call_video_model(shot, config, clip_path, character_bible):
+def call_video_model(shot, config, clip_path):
     """
     Submit one shot to Seedance 2.0, poll until done, download clip.
     Returns (True, "ok") on success, (False, reason_string) on any failure.
-
-    Thin wrapper around submit_and_poll_video_task — the submit/poll/download
-    plumbing itself lives there now so generate_character_reference_image can
-    reuse it instead of duplicating it.
-
-    character_bible supplies reference_image_url per character (see
-    generate_character_reference_image). For each character tagged in
-    shot["characters_in_shot"] that has a reference image, we attach it to the
-    request's `content` array as an image_url entry alongside the text prompt —
-    same pattern this codebase already uses for text content. Capped at 9
-    images, matching Seedance 2.0's published reference-image limit.
-
-    The image_url content-type addition is the one part of this file still
-    unverified against a live call (the submit/poll/download shape itself is
-    proven — it's the same one used for every shot already). Realistic failure
-    modes if `image_url` isn't accepted here: the API 400s on submit (already
-    caught — fails just this one shot, job continues with whatever did
-    succeed), or it's silently ignored (back to text-only consistency for this
-    shot, no worse than before). Confirm against your account before assuming
-    it's actually conditioning on the image.
     """
+    if not ARK_API_KEY:
+        return False, "ARK_API_KEY not set"
+
     prompt_parts = [shot["prompt"]]
     if shot.get("camera"):
         prompt_parts.append(shot["camera"])
@@ -1246,37 +778,80 @@ def call_video_model(shot, config, clip_path, character_bible):
 
     duration = max(4, min(15, int(shot.get("duration", 5))))
 
-    content = [{"type": "text", "text": full_prompt}]
-    attached_urls = set()
-    for char_name in shot.get("characters_in_shot", []):
-        if len(attached_urls) >= 9:
-            break
-        match = _find_character(char_name, character_bible)
-        if not match:
-            continue
-        _, entry = match
-        ref_url = entry.get("reference_image_url")
-        if ref_url and ref_url not in attached_urls:
-            content.append({"type": "image_url", "image_url": {"url": ref_url}})
-            attached_urls.add(ref_url)
+    payload = {
+        "model": config["video_model"],
+        "content": [{"type": "text", "text": full_prompt}],
+        "ratio": config["aspect_ratio"],
+        "resolution": config["resolution"],
+        "duration": duration,
+        "generate_audio": False,
+    }
 
-    video_bytes, reason = submit_and_poll_video_task(content, config, duration)
-    if video_bytes is None:
-        return False, reason
+    submit_req = urllib_request.Request(
+        f"{ARK_API_BASE}/contents/generations/tasks",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
     try:
-        clip_path.write_bytes(video_bytes)
-    except OSError as exc:
-        return False, f"Write failed: {exc}"
-    return True, "ok"
+        with urllib_request.urlopen(submit_req, timeout=30) as resp:
+            submit_data = json.loads(resp.read().decode("utf-8"))
+        task_id = submit_data.get("id") or submit_data.get("task_id")
+        if not task_id:
+            return False, f"No task_id in submit response: {submit_data}"
+    except urllib_error.HTTPError as exc:
+        return False, f"Submit HTTP {exc.code}: {exc.reason}"
+    except (urllib_error.URLError, json.JSONDecodeError) as exc:
+        return False, f"Submit error: {exc}"
+
+    # Poll until terminal state or timeout
+    poll_url = f"{ARK_API_BASE}/contents/generations/tasks/{task_id}"
+    poll_headers = {"Authorization": f"Bearer {ARK_API_KEY}"}
+    deadline = time.monotonic() + SHOT_POLL_TIMEOUT
+
+    while time.monotonic() < deadline:
+        time.sleep(SHOT_POLL_INTERVAL)
+        try:
+            poll_req = urllib_request.Request(poll_url, headers=poll_headers, method="GET")
+            with urllib_request.urlopen(poll_req, timeout=15) as resp:
+                poll_data = json.loads(resp.read().decode("utf-8"))
+        except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError):
+            continue  # transient; keep polling
+
+        status = (poll_data.get("status") or "").lower()
+
+        if status in ("succeeded", "completed"):
+            video_url = (
+                poll_data.get("content", {}).get("video_url")
+                or poll_data.get("output", {}).get("video_url")
+                or poll_data.get("video_url")
+            )
+            if not video_url:
+                return False, "succeeded but no video_url in response"
+            try:
+                dl_req = urllib_request.Request(video_url, method="GET")
+                with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
+                    clip_path.write_bytes(dl_resp.read())
+                return True, "ok"
+            except (urllib_error.URLError, OSError) as exc:
+                return False, f"Download failed: {exc}"
+
+        elif status in ("failed", "cancelled", "expired", "error"):
+            err = poll_data.get("error") or {}
+            return False, f"Task {status}: {err.get('message', 'no details')}"
+
+        # still queued/running — keep polling
+
+    return False, f"Timed out after {SHOT_POLL_TIMEOUT}s waiting for task {task_id}"
 
 
-def render_shots(job_id, shots, config, character_bible):
+def render_shots(job_id, shots, config):
     """
     Render each shot via Seedance 2.0 on ModelArk.
     Processes shots sequentially with a 1-second gap to respect QPS=2.
-
-    character_bible (from call_planner) is passed through to call_video_model so
-    each shot can attach reference images for the characters it contains.
 
     Returns a tuple: (clips, shot_log)
       clips    — list of (Path, duration) for successfully rendered shots, in order
@@ -1290,7 +865,7 @@ def render_shots(job_id, shots, config, character_bible):
 
     for shot in shots:
         clip_path = OUTPUT_DIR / f"{job_id}-shot-{shot['index']:03d}.mp4"
-        ok, reason = call_video_model(shot, config, clip_path, character_bible)
+        ok, reason = call_video_model(shot, config, clip_path)
         entry = {
             "index": shot["index"],
             "duration": shot["duration"],
@@ -1340,10 +915,6 @@ def stitch_shots(shot_clips, output_path, config):
 
 def create_job_record(user_id, original_filename, config, storyboard_text):
     settings = load_settings()
-    # Pre-planning gate: character count isn't known yet (that's an LLM step
-    # that hasn't run), so this uses settings["quote_character_assumption"].
-    # run_job_async re-checks against the REAL character count once the
-    # planner has actually run, before any shots are rendered — see there.
     estimated_credits, provider = estimate_job_cost(config, settings)
     cur = db_execute("SELECT credit_balance FROM users WHERE id = %s", (user_id,))
     user = cur.fetchone()
@@ -1380,7 +951,7 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
 
     t = threading.Thread(
         target=run_job_async,
-        args=(job_id, user_id, config, settings, storyboard_text, storyboard_path, estimated_credits),
+        args=(job_id, user_id, config, storyboard_text, storyboard_path, estimated_credits),
         daemon=True,
     )
     t.start()
@@ -1439,7 +1010,6 @@ def session_status():
                 "credit_label": settings["credit_label"],
                 "default_planner_model": settings["default_planner_model"],
                 "default_video_model": settings["default_video_model"],
-                "quote_character_assumption": int(settings["quote_character_assumption"]),
             },
             "catalog": MODEL_CATALOG,
             "ark_ready": bool(ARK_API_KEY),
@@ -1529,13 +1099,6 @@ def quote_job():
             "estimated_credits": estimated_credits,
             "provider": provider,
             "credit_label": settings["credit_label"],
-            # character_count is unknown pre-planning (it's an LLM extraction
-            # step); this quote assumes settings["quote_character_assumption"]
-            # characters. The real charge, applied after planning actually
-            # runs, can be higher or lower than this number.
-            "assumed_character_count": clamp_int(
-                settings.get("quote_character_assumption"), 2, 0, 20
-            ),
         }
     )
 
@@ -1630,41 +1193,6 @@ def download_job(job_id):
     return send_file(path, as_attachment=True, download_name=download_name)
 
 
-@app.route("/api/jobs/<job_id>/source")
-@login_required
-def job_source(job_id):
-    """
-    Returns the original storyboard text and full config a job was created
-    from, so the frontend can reload them into the render form for editing
-    and resubmitting as a new job ("reprompt"). Available for a job in any
-    status, including failed — reprompting from a failure is the most likely
-    reason someone would use this. This doesn't persist anything new: the
-    storyboard markdown was already written to disk at storyboard_path and
-    the config was already stored in params_json at job creation time; this
-    is just the first endpoint that actually exposes either of them.
-    """
-    cur = db_execute(
-        "SELECT id, title, storyboard_path, params_json FROM jobs WHERE id = %s AND user_id = %s",
-        (job_id, g.current_user["id"]),
-    )
-    row = cur.fetchone()
-    if not row:
-        return jsonify({"error": "Job not found."}), 404
-    path = Path(row["storyboard_path"])
-    if not path.exists():
-        return jsonify({"error": "Original storyboard file is missing on disk."}), 404
-    try:
-        storyboard_text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return jsonify({"error": "Could not read the original storyboard file."}), 500
-    return jsonify({
-        "id": row["id"],
-        "title": row["title"],
-        "config": json.loads(row["params_json"]),
-        "storyboard_text": storyboard_text,
-    })
-
-
 @app.route("/api/admin/overview")
 @admin_required
 def admin_overview():
@@ -1710,7 +1238,6 @@ def admin_overview():
                 "signup_bonus_credits": float(settings["signup_bonus_credits"]),
                 "default_planner_model": settings["default_planner_model"],
                 "default_video_model": settings["default_video_model"],
-                "quote_character_assumption": int(settings["quote_character_assumption"]),
             },
             "recent_jobs": [
                 {
@@ -1765,10 +1292,6 @@ def admin_settings():
     save_setting(
         "signup_bonus_credits",
         clamp_float(payload.get("signup_bonus_credits"), 120.0, 0.0, 5000.0),
-    )
-    save_setting(
-        "quote_character_assumption",
-        clamp_int(payload.get("quote_character_assumption"), 2, 0, 20),
     )
     if payload.get("default_planner_model"):
         save_setting("default_planner_model", payload["default_planner_model"])
