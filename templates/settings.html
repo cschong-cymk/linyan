@@ -366,7 +366,7 @@
       <div class="settings-section" id="sec-credits">
         <div class="section-head">
           <div class="section-title">Credits &amp; usage</div>
-          <div class="section-desc">Your current balance and transaction history. Balances are topped up manually by the host admin.</div>
+          <div class="section-desc">Your current balance and transaction history. Buy credits with a card via Stripe — they're added to your account automatically once the payment clears.</div>
         </div>
 
         <div class="setting-group">
@@ -374,6 +374,10 @@
           <div class="credit-display">
             <span class="credit-amount" id="credit-balance">—</span>
             <span class="credit-unit" id="credit-unit">credits</span>
+          </div>
+          <div class="actions" id="buy-credits-row" style="display:none;align-items:center;gap:12px;">
+            <a class="btn btn-primary" href="/billing/checkout" target="_blank" rel="noopener" style="text-decoration:none;">Buy credits</a>
+            <span class="muted small" id="buy-credits-hint"></span>
           </div>
         </div>
 
@@ -673,6 +677,15 @@
               <input id="admin-base-job" type="number" min="1" max="500" step="1">
             </div>
           </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-label">Credits per dollar (Stripe)</div>
+              <div class="setting-hint">Credits granted per USD paid via the Stripe payment link. 100 = face value. Note: a single flat rate can't express tiered bulk discounts — that needs one payment link per tier.</div>
+            </div>
+            <div class="setting-control">
+              <input id="admin-credits-per-dollar" type="number" min="0" max="10000" step="1">
+            </div>
+          </div>
         </div>
 
         <div class="setting-group">
@@ -749,6 +762,16 @@
             <thead><tr><th>User</th><th>Role</th><th>Balance</th><th>Renders</th><th>Joined</th></tr></thead>
             <tbody id="admin-users-table"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
           </table>
+        </div>
+
+        <div class="setting-group">
+          <div class="setting-group-label">Stripe payments</div>
+          <div class="setting-hint" id="stripe-status-hint" style="margin-bottom:10px;"></div>
+          <table>
+            <thead><tr><th>Date</th><th>Event</th><th>Amount</th><th>Credits</th><th>Status</th><th>Note</th></tr></thead>
+            <tbody id="stripe-events-table"><tr><td colspan="6" class="muted">No payments yet.</td></tr></tbody>
+          </table>
+          <div class="setting-hint" style="margin-top:8px;">Rows marked <strong>unmatched</strong> are payments received that couldn't be attributed to an account — resolve them with a manual credit adjustment above, using the amount and email in the note.</div>
         </div>
       </div>
 
@@ -872,6 +895,19 @@
       document.getElementById('credit-balance').textContent = u.credit_balance.toFixed(1);
       document.getElementById('credit-unit').textContent = s.credit_label;
 
+      // stripe buy button — only when the host has a payment link configured
+      var billing = state.session.billing || {};
+      if (billing.payment_link_enabled) {
+        document.getElementById('buy-credits-row').style.display = 'flex';
+        var hint = '$1 = ' + Number(billing.credits_per_dollar || 100).toFixed(0) + ' credits · secure checkout via Stripe';
+        if (!billing.webhook_configured) {
+          hint = u.is_admin
+            ? '⚠ STRIPE_WEBHOOK_SECRET is not set — payments will NOT credit accounts automatically.'
+            : hint + ' · credits may take a moment to appear';
+        }
+        document.getElementById('buy-credits-hint').textContent = hint;
+      }
+
       // topbar
       document.getElementById('topbar-name').textContent = u.display_name;
 
@@ -912,6 +948,8 @@
         document.getElementById('admin-margin').value        = state.admin.settings.margin_multiplier;
         document.getElementById('admin-signup-bonus').value  = state.admin.settings.signup_bonus_credits;
         document.getElementById('admin-base-job').value      = state.admin.settings.base_job_credits;
+        document.getElementById('admin-credits-per-dollar').value = state.admin.settings.credits_per_dollar;
+        renderStripeEvents();
         // admin model selects
         var pm = document.getElementById('admin-planner-model');
         var vm = document.getElementById('admin-video-model');
@@ -939,6 +977,30 @@
               '<td class="small muted">'+new Date(u.created_at).toLocaleDateString()+'</td></tr>';
           }).join('');
       document.getElementById('admin-users-table').innerHTML = html;
+    }
+
+    function renderStripeEvents() {
+      var stripe = state.admin && state.admin.stripe;
+      if (!stripe) return;
+      var hintEl = document.getElementById('stripe-status-hint');
+      hintEl.textContent = !stripe.payment_link_enabled
+        ? '⚠ No STRIPE_PAYMENT_LINK configured — the buy button is hidden for everyone.'
+        : (!stripe.webhook_configured
+          ? '⚠ STRIPE_WEBHOOK_SECRET is not set. The payment link works, but completed payments will NOT credit any account until you add a webhook endpoint in the Stripe Dashboard (Developers → Webhooks → https://<your-domain>/api/stripe/webhook) and set its signing secret as STRIPE_WEBHOOK_SECRET.'
+          : 'Webhook configured. Events below are recorded verbatim from Stripe.');
+      var rows = stripe.recent_events || [];
+      if (!rows.length) return;
+      document.getElementById('stripe-events-table').innerHTML = rows.map(function(e) {
+        var amt = e.amount_cents != null ? '$' + (e.amount_cents / 100).toFixed(2) + ' ' + (e.currency || '').toUpperCase() : '—';
+        var statusColor = e.status === 'credited' ? 'var(--lavender)' : (e.status === 'unmatched' ? '#e07a5f' : 'var(--muted)');
+        return '<tr>' +
+          '<td class="small muted">' + new Date(e.created_at).toLocaleString() + '</td>' +
+          '<td class="small">' + e.event_type + '</td>' +
+          '<td class="small">' + amt + '</td>' +
+          '<td class="small">' + (e.credits != null ? e.credits.toFixed(1) : '—') + '</td>' +
+          '<td class="small" style="color:' + statusColor + ';">' + e.status + '</td>' +
+          '<td class="small muted">' + (e.note || '') + '</td></tr>';
+      }).join('');
     }
 
     function renderLedger(entries) {
@@ -1043,6 +1105,7 @@
           margin_multiplier:   Number(document.getElementById('admin-margin').value),
           signup_bonus_credits:Number(document.getElementById('admin-signup-bonus').value),
           base_job_credits:    Number(document.getElementById('admin-base-job').value),
+          credits_per_dollar:  Number(document.getElementById('admin-credits-per-dollar').value),
           default_planner_model: document.getElementById('admin-planner-model').value,
           default_video_model:   document.getElementById('admin-video-model').value
         })});

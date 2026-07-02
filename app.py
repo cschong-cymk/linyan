@@ -1,5 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
+import hashlib
+import hmac
 import json
 import os
 import shutil
@@ -14,6 +16,7 @@ from functools import wraps
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+from urllib.parse import quote as url_quote
 
 
 import psycopg2
@@ -44,6 +47,27 @@ DATABASE_URL = os.environ.get(
 # generate_character_reference_image).
 ARK_API_KEY = os.environ.get("ARK_API_KEY")
 ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
+
+# ── Stripe (credit purchases) ────────────────────────────────────────────────
+# STRIPE_PAYMENT_LINK is a Stripe-hosted Payment Link (buy.stripe.com/...).
+# We redirect logged-in users to it with ?client_reference_id=<user_id> so the
+# resulting checkout.session.completed webhook event can be matched back to the
+# account that paid. One Payment Link sells exactly one product at one price —
+# credits are granted from the *amount actually paid* (see stripe webhook
+# handler), so adding more links/tiers later needs no code change.
+STRIPE_PAYMENT_LINK = os.environ.get(
+    "STRIPE_PAYMENT_LINK", "https://buy.stripe.com/fZueVd17u5Au5mU88z8Vi00"
+).strip()
+# Webhook signing secret ("whsec_...") from the Stripe Dashboard endpoint you
+# create at Developers → Webhooks → Add endpoint → https://<domain>/api/stripe/webhook.
+# REQUIRED for payments to credit accounts. Without it the webhook endpoint
+# refuses all events (503) rather than trusting unauthenticated POSTs — anyone
+# on the internet can POST JSON at this route, so signature verification is the
+# only thing standing between "payment system" and "free credits endpoint".
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+# Reject webhook events whose signature timestamp is older than this (replay
+# protection window, seconds). Matches Stripe's own SDK default.
+STRIPE_SIGNATURE_TOLERANCE = 300
 
 # Public, internet-reachable base URL for this app (e.g. https://linyan.io).
 # Required because ModelArk's servers — not the user's browser — fetch the
@@ -133,6 +157,12 @@ DEFAULT_SETTINGS = {
     # quotes and the upfront balance check) — see estimate_job_cost. This is a
     # guess, admin-tunable, not a measurement.
     "quote_character_assumption": 2,
+    # Credits granted per USD actually paid through Stripe. 1 credit = $0.01
+    # cost basis, so 100 = face value (a $15 payment grants 1,500 credits).
+    # NOTE: the README's planned tiers promise *better* rates at higher tiers
+    # ($15→2,000 ≈ 133/$; $120→25,000 ≈ 208/$). A single flat rate can't
+    # express that — see admin panel note. Tunable via /api/admin/settings.
+    "credits_per_dollar": 100.0,
 }
 
 # Linux container font candidates (macOS paths removed)
@@ -268,6 +298,22 @@ def init_db():
             params_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            event_id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            object_id TEXT,
+            user_id INTEGER,
+            amount_cents INTEGER,
+            currency TEXT,
+            credits REAL,
+            status TEXT NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL
         );
         """
     )
@@ -1443,6 +1489,15 @@ def session_status():
             },
             "catalog": MODEL_CATALOG,
             "ark_ready": bool(ARK_API_KEY),
+            "billing": {
+                # Buy button shows only when there's a link to send people to.
+                "payment_link_enabled": bool(STRIPE_PAYMENT_LINK),
+                # Honest flag: link without webhook = payments that credit nothing.
+                "webhook_configured": bool(STRIPE_WEBHOOK_SECRET),
+                "credits_per_dollar": clamp_float(
+                    settings.get("credits_per_dollar"), 100.0, 0.0, 10000.0
+                ),
+            },
         }
     )
 
@@ -1516,6 +1571,226 @@ def login():
 def logout():
     session.clear()
     return jsonify({"success": True})
+
+
+# ── Stripe billing ───────────────────────────────────────────────────────────
+
+
+@app.route("/billing/checkout")
+@login_required
+def billing_checkout():
+    """Send the logged-in user to the Stripe Payment Link.
+
+    We append client_reference_id=<user_id> (a documented Payment Link URL
+    parameter) so the checkout.session.completed webhook can attribute the
+    payment to this account, plus prefilled_email as a human-visible anchor
+    and email-match fallback. Users who pay via the raw link instead of this
+    route can only be matched by email — if their Stripe receipt email differs
+    from their Linyan email, the payment lands as 'unmatched' in stripe_events
+    and needs a manual admin top-up.
+    """
+    if not STRIPE_PAYMENT_LINK:
+        return jsonify({"error": "Payments are not configured on this host."}), 503
+    sep = "&" if "?" in STRIPE_PAYMENT_LINK else "?"
+    url = (
+        f"{STRIPE_PAYMENT_LINK}{sep}"
+        f"client_reference_id={g.current_user['id']}"
+        f"&prefilled_email={url_quote(g.current_user['email'])}"
+    )
+    return redirect(url)
+
+
+def verify_stripe_signature(payload_bytes, sig_header):
+    """Verify a Stripe-Signature header against the raw request body.
+
+    Implements Stripe's documented scheme (HMAC-SHA256 over
+    "<timestamp>.<payload>") directly so we don't need the stripe SDK as a
+    dependency. Handles multiple v1 signatures (present during secret
+    rotation) and enforces a replay-protection timestamp window.
+    """
+    if not sig_header:
+        return False
+    timestamp = None
+    candidate_sigs = []
+    for part in sig_header.split(","):
+        key, _, value = part.strip().partition("=")
+        if key == "t":
+            try:
+                timestamp = int(value)
+            except ValueError:
+                return False
+        elif key == "v1":
+            candidate_sigs.append(value)
+    if timestamp is None or not candidate_sigs:
+        return False
+    if abs(time.time() - timestamp) > STRIPE_SIGNATURE_TOLERANCE:
+        return False
+    signed_payload = str(timestamp).encode("utf-8") + b"." + payload_bytes
+    expected = hmac.new(
+        STRIPE_WEBHOOK_SECRET.encode("utf-8"), signed_payload, hashlib.sha256
+    ).hexdigest()
+    return any(hmac.compare_digest(expected, sig) for sig in candidate_sigs)
+
+
+def record_stripe_event(cur, event, obj, status, note, user_id=None, credits=None,
+                        amount_cents=None, currency=None):
+    cur.execute(
+        """
+        INSERT INTO stripe_events
+            (event_id, event_type, object_id, user_id, amount_cents, currency,
+             credits, status, note, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            event.get("id"),
+            event.get("type"),
+            obj.get("id"),
+            user_id,
+            amount_cents,
+            currency,
+            credits,
+            status,
+            note,
+            now_iso(),
+        ),
+    )
+
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    """Receive Stripe events and convert paid checkouts into credits.
+
+    Handles:
+      - checkout.session.completed / checkout.session.async_payment_succeeded
+        (one-time Payment Link purchases, and the first payment of a
+        subscription-mode link)
+      - invoice.payment_succeeded (subscription renewals; the initial
+        subscription invoice is skipped because the checkout event above
+        already credited it)
+
+    Idempotency: event_id is the stripe_events primary key. Stripe retries
+    deliveries until it gets a 2xx; a duplicate insert conflicts and we ack
+    without crediting again. Claim + credit + ledger write happen in one
+    transaction on one connection, so a crash can't leave a claimed-but-
+    uncredited event.
+    """
+    if not STRIPE_WEBHOOK_SECRET:
+        # Refuse rather than trust: without signature verification this route
+        # would let anyone mint credits with a hand-written POST.
+        return jsonify({"error": "Stripe webhook secret not configured."}), 503
+    payload = request.get_data()
+    if not verify_stripe_signature(payload, request.headers.get("Stripe-Signature")):
+        return jsonify({"error": "Invalid signature."}), 400
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError:
+        return jsonify({"error": "Malformed payload."}), 400
+
+    event_type = event.get("type", "")
+    obj = (event.get("data") or {}).get("object") or {}
+
+    checkout_events = (
+        "checkout.session.completed",
+        "checkout.session.async_payment_succeeded",
+    )
+    if event_type not in checkout_events + ("invoice.payment_succeeded",):
+        return jsonify({"received": True, "ignored": event_type})
+
+    # Extract who-paid-what per event shape.
+    user_id = None
+    email = None
+    if event_type in checkout_events:
+        if obj.get("payment_status") != "paid":
+            # Delayed payment methods complete the session before money moves;
+            # the async_payment_succeeded event will follow if it clears.
+            return jsonify({"received": True, "pending": True})
+        ref = obj.get("client_reference_id")
+        if ref and str(ref).isdigit():
+            user_id = int(ref)
+        email = ((obj.get("customer_details") or {}).get("email")
+                 or obj.get("customer_email") or "").strip().lower()
+        amount_cents = obj.get("amount_total")
+        currency = (obj.get("currency") or "").lower()
+    else:  # invoice.payment_succeeded
+        if obj.get("billing_reason") == "subscription_create":
+            # First invoice of a subscription — already credited via the
+            # checkout.session.completed event for the same purchase.
+            return jsonify({"received": True, "skipped": "subscription_create"})
+        email = (obj.get("customer_email") or "").strip().lower()
+        amount_cents = obj.get("amount_paid")
+        currency = (obj.get("currency") or "").lower()
+
+    settings = load_settings()
+    credits_per_dollar = clamp_float(settings.get("credits_per_dollar"), 100.0, 0.0, 10000.0)
+
+    db = get_db()
+    cur = db.cursor()
+    try:
+        # Idempotency claim — a retry of an already-processed event conflicts
+        # here and gets acked without re-crediting.
+        cur.execute("SELECT 1 FROM stripe_events WHERE event_id = %s", (event.get("id"),))
+        if cur.fetchone():
+            db.rollback()
+            return jsonify({"received": True, "duplicate": True})
+
+        if not amount_cents or amount_cents <= 0:
+            record_stripe_event(cur, event, obj, "skipped", "Zero or missing amount.",
+                                amount_cents=amount_cents, currency=currency)
+            db.commit()
+            return jsonify({"received": True, "skipped": "zero_amount"})
+
+        if currency != "usd":
+            # credits_per_dollar is a USD rate; auto-crediting other currencies
+            # at that rate would misprice. Park it for manual resolution.
+            record_stripe_event(cur, event, obj, "unmatched",
+                                f"Non-USD currency '{currency}' — resolve manually.",
+                                amount_cents=amount_cents, currency=currency)
+            db.commit()
+            return jsonify({"received": True, "unmatched": "currency"})
+
+        # Resolve the user: explicit client_reference_id first, email fallback.
+        target = None
+        if user_id is not None:
+            cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+            target = cur.fetchone()
+        if not target and email:
+            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+            target = cur.fetchone()
+        if not target:
+            record_stripe_event(cur, event, obj, "unmatched",
+                                f"No account matched (email: {email or 'none'}). "
+                                "Top up manually from the admin panel.",
+                                amount_cents=amount_cents, currency=currency)
+            db.commit()
+            return jsonify({"received": True, "unmatched": "no_account"})
+
+        credits = round((amount_cents / 100.0) * credits_per_dollar, 1)
+        record_stripe_event(cur, event, obj, "credited", email or "",
+                            user_id=target["id"], credits=credits,
+                            amount_cents=amount_cents, currency=currency)
+        cur.execute(
+            "UPDATE users SET credit_balance = ROUND(CAST(credit_balance + %s AS numeric), 1) WHERE id = %s",
+            (credits, target["id"]),
+        )
+        cur.execute(
+            """
+            INSERT INTO credit_ledger (user_id, delta, reason, note, actor_user_id, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                target["id"],
+                credits,
+                "stripe_purchase",
+                f"Stripe payment ${amount_cents / 100.0:.2f} ({obj.get('id') or event.get('id')})",
+                None,
+                now_iso(),
+            ),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return jsonify({"received": True, "credited": True})
 
 
 @app.route("/api/quote", methods=["POST"])
@@ -1711,6 +1986,14 @@ def admin_overview():
                 "default_planner_model": settings["default_planner_model"],
                 "default_video_model": settings["default_video_model"],
                 "quote_character_assumption": int(settings["quote_character_assumption"]),
+                "credits_per_dollar": clamp_float(
+                    settings.get("credits_per_dollar"), 100.0, 0.0, 10000.0
+                ),
+            },
+            "stripe": {
+                "payment_link_enabled": bool(STRIPE_PAYMENT_LINK),
+                "webhook_configured": bool(STRIPE_WEBHOOK_SECRET),
+                "recent_events": stripe_recent_events(),
             },
             "recent_jobs": [
                 {
@@ -1725,6 +2008,23 @@ def admin_overview():
             ],
         }
     )
+
+
+def stripe_recent_events(limit=20):
+    """Recent Stripe webhook outcomes for the admin panel — most importantly
+    'unmatched' rows, which are real money received that credited nobody and
+    need a manual top-up."""
+    cur = db_execute(
+        """
+        SELECT event_id, event_type, object_id, user_id, amount_cents,
+               currency, credits, status, note, created_at
+        FROM stripe_events
+        ORDER BY created_at DESC
+        LIMIT %s
+        """,
+        (limit,),
+    )
+    return [dict(r) for r in cur.fetchall()]
 
 
 @app.route("/api/admin/topups", methods=["POST"])
@@ -1770,6 +2070,15 @@ def admin_settings():
         "quote_character_assumption",
         clamp_int(payload.get("quote_character_assumption"), 2, 0, 20),
     )
+    # Only saved when the client actually sent it. The unconditional saves
+    # above silently reset a setting to its default whenever a form that
+    # doesn't include that field posts (index.html's admin form omits
+    # quote_character_assumption, for example) — not repeating that here.
+    if "credits_per_dollar" in payload:
+        save_setting(
+            "credits_per_dollar",
+            clamp_float(payload.get("credits_per_dollar"), 100.0, 0.0, 10000.0),
+        )
     if payload.get("default_planner_model"):
         save_setting("default_planner_model", payload["default_planner_model"])
     if payload.get("default_video_model"):

@@ -637,6 +637,8 @@
           </div>
           <div class="vu-track"><div class="vu-fill" id="vu-fill" style="width:0%"></div></div>
           <div class="vu-scale"><span>0</span><span>100</span><span>250</span><span>500</span></div>
+          <a id="buy-credits-link" href="/billing/checkout" target="_blank" rel="noopener"
+             style="display:none;margin-top:10px;font-size:11px;color:var(--lavender,#b8a9e8);text-decoration:none;letter-spacing:0.04em;">+ Buy credits (Stripe)</a>
         </div>
       </div>
 
@@ -1215,6 +1217,9 @@
       document.getElementById('topbar-admin-link').classList.toggle('hidden', !u.is_admin);
       updateVU(u.credit_balance);
       document.getElementById('vu-unit').textContent=s.settings.credit_label.split(' ')[0];
+      if (s.billing && s.billing.payment_link_enabled) {
+        document.getElementById('buy-credits-link').style.display='inline-block';
+      }
     }
 
     // Sample data used only when no backend is reachable (e.g. static preview).

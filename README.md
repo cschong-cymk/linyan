@@ -22,6 +22,8 @@ export LINYAN_SECRET_KEY=...    # Flask session secret
 export LINYAN_PUBLIC_BASE_URL=... # your public domain, required for character consistency (e.g. https://linyan.io)
 export SYNC_API_KEY=...         # sync.so (planned)
 export KIE_API_KEY=...          # kie.ai Suno wrapper (planned)
+export STRIPE_PAYMENT_LINK=...  # Stripe Payment Link URL (defaults to the built-in link)
+export STRIPE_WEBHOOK_SECRET=whsec_...  # REQUIRED for payments to credit accounts — see Billing
 
 python app.py
 ```
@@ -107,6 +109,41 @@ Pricing now has two phases, because character reference generation (see *Charact
 | Starter | 2,000 | $15 | Standard render |
 | Pro | 8,000 | $50 | + lip sync |
 | Studio | 25,000 | $120 | + dubbing, priority queue |
+
+---
+
+## Billing (Stripe)
+
+Credit purchases run through a **Stripe Payment Link** + a **signed webhook** that converts paid checkouts into credits. The Payment Link alone does nothing for the app — without the webhook, money arrives in Stripe and no account gets credited.
+
+### Flow
+
+1. Logged-in user clicks **Buy credits** (Studio sidebar or Settings → Credits).
+2. `GET /billing/checkout` 302-redirects to `STRIPE_PAYMENT_LINK` with `?client_reference_id=<user_id>&prefilled_email=<email>` appended.
+3. User pays on Stripe's hosted page.
+4. Stripe POSTs `checkout.session.completed` to `POST /api/stripe/webhook`.
+5. The webhook verifies the `Stripe-Signature` header (HMAC-SHA256, replay window 5 min, no Stripe SDK dependency), matches the user by `client_reference_id` (falling back to receipt email), and credits `amount_paid × credits_per_dollar` in one atomic transaction. Duplicate deliveries are deduped by event id.
+
+Subscription-mode links also work: the first payment credits via the checkout event, renewals via `invoice.payment_succeeded` (matched by customer email; the initial subscription invoice is skipped to avoid double-crediting).
+
+### One-time deploy steps (Stripe Dashboard)
+
+1. **Developers → Webhooks → Add endpoint** → `https://<your-domain>/api/stripe/webhook`.
+2. Subscribe to: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `invoice.payment_succeeded`.
+3. Copy the endpoint's signing secret (`whsec_…`) into `STRIPE_WEBHOOK_SECRET` and restart.
+
+Until step 3 is done, the webhook route returns 503 for everything (it refuses to trust unsigned POSTs — otherwise it would be a free-credits endpoint), and admins see a warning banner in Settings → Users & credits → Stripe payments.
+
+### Settings & auditing
+
+- `credits_per_dollar` (admin-tunable, default **100** = face value at 1 credit = $0.01). Applied to the USD amount actually paid, so adding more Payment Links later (Starter/Pro/Studio) needs no code change.
+- Every webhook outcome is recorded in the `stripe_events` table and shown in the admin panel. **`unmatched` rows are real money that credited nobody** (unknown email, non-USD payment, or someone paid via the raw link with a different email) — resolve those with a manual admin top-up.
+
+### Known limitations (deliberate)
+
+- **One Payment Link = one price.** A flat `credits_per_dollar` can't express the planned tiers' bulk discounts ($15→2,000 but $120→25,000). Tiers need one link per tier, or a move to Stripe Checkout Sessions created via the API (requires a secret key, not shipped).
+- **Refunds and disputes are not clawed back automatically.** Handle them as negative admin adjustments; the ledger note carries the Stripe session id for cross-referencing.
+- **Non-USD payments are parked as `unmatched`,** never auto-credited at the USD rate.
 
 ---
 
