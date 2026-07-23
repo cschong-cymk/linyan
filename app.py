@@ -48,6 +48,18 @@ DATABASE_URL = os.environ.get(
 ARK_API_KEY = os.environ.get("ARK_API_KEY")
 ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
 
+# ── kie.ai (Suno wrapper) — background music ─────────────────────────────────
+# Verified live 2026-07-23: POST /generate (callBackUrl is REQUIRED even when
+# polling; a dead callback URL doesn't block completion), poll
+# GET /generate/record-info until status SUCCESS, download sunoData[0].audioUrl
+# (their CDN 403s Python's default User-Agent — send a browser UA).
+KIE_API_KEY = os.environ.get("KIE_API_KEY")
+KIE_API_BASE = os.environ.get("KIE_API_BASE", "https://api.kie.ai/api/v1")
+MUSIC_FLAT_CREDITS = 10.0     # flat fee per job with music enabled (README: 5–10)
+MUSIC_POLL_TIMEOUT = 300      # observed live: ~2.5 min to SUCCESS
+MUSIC_POLL_INTERVAL = 10
+MUSIC_DL_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
 # ── Stripe (credit purchases) ────────────────────────────────────────────────
 # STRIPE_PAYMENT_LINK is a Stripe-hosted Payment Link (buy.stripe.com/...).
 # We redirect logged-in users to it with ?client_reference_id=<user_id> so the
@@ -501,6 +513,11 @@ def normalize_config(raw_config, settings):
         "motion_temperature": clamp_float(raw_config.get("motion_temperature"), 0.5, 0.0, 1.0),
         "dialogue_temperature": clamp_float(raw_config.get("dialogue_temperature"), 0.4, 0.0, 1.0),
         "consistency_strength": clamp_float(raw_config.get("consistency_strength"), 0.8, 0.1, 1.0),
+        "music_enabled": bool(raw_config.get("music_enabled")),
+        # Optional user override; when empty the planner's music_prompt is used.
+        # kie.ai non-custom mode caps prompt at 500 chars; leave headroom for
+        # the ", instrumental" suffix added in generate_background_music.
+        "music_prompt": str(raw_config.get("music_prompt") or "").strip()[:450],
     }
     if config["aspect_ratio"] not in ASPECT_PRESETS:
         config["aspect_ratio"] = "16:9"
@@ -560,6 +577,13 @@ def estimate_job_cost(config, settings, character_count=None):
     raw_usd = usd_per_second * (video_seconds + reference_seconds)
     charged_usd = raw_usd * margin
     credits = charged_usd * CREDITS_PER_USD
+
+    # Background music: flat fee, margin NOT applied — MUSIC_FLAT_CREDITS is
+    # already the charged price (kie.ai's per-generation cost is cents; a flat
+    # 10 credits comfortably covers it). Refunded by run_job_async if music
+    # generation fails or is skipped: the fee is only kept when music ships.
+    if config.get("music_enabled"):
+        credits += MUSIC_FLAT_CREDITS
 
     return round(credits, 1), provider
 
@@ -1028,7 +1052,8 @@ def call_planner(storyboard_text, config):
               "camera": "<camera movement and framing note>",
               "narration": "<voice-over line, or empty string if none>"
             }
-          ]
+          ],
+          "music_prompt": "<one short instrumental music description for the WHOLE video (mood, instruments, tempo — e.g. 'sparse piano and strings, melancholic, slow tempo'), no lyrics, max 300 characters>"
         }
         Rules:
         - Every name in characters_in_shot must exactly match a name in characters[].
@@ -1126,8 +1151,14 @@ def call_planner(storyboard_text, config):
             ),
             "characters": character_bible,
             "shots": clean_shots,
+            "music_prompt": str(parsed.get("music_prompt", "")).strip()[:450],
             "plan_text": json.dumps(
-                {"characters": character_bible, "shots": clean_shots}, indent=2
+                {
+                    "characters": character_bible,
+                    "shots": clean_shots,
+                    "music_prompt": str(parsed.get("music_prompt", "")).strip()[:450],
+                },
+                indent=2,
             ),
         }
     except (urllib_error.HTTPError, urllib_error.URLError) as exc:
@@ -1337,6 +1368,27 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
                     output_path, config["title"], job_id, config, storyboard_text, planner
                 )
 
+        # ── Phase 3.5: Background music (best-effort) ────────────────────────
+        # Only on a real render — placeholders don't get scored. Any failure
+        # here ships the video without music AND refunds the flat music fee:
+        # the fee is only kept when music actually made it into the file.
+        if config.get("music_enabled"):
+            music_note = "skipped: render fell back to placeholder"
+            if rendered_ok:
+                set_status("rendering", extra_params={"music_status": "generating"})
+                music_prompt = config.get("music_prompt") or planner.get("music_prompt") or ""
+                music_path, music_err = generate_background_music(job_id, music_prompt)
+                if music_path:
+                    mixed, mix_note = mix_music_into_video(output_path, music_path)
+                    music_note = "ok" if mixed else mix_note
+                    music_path.unlink(missing_ok=True)
+                else:
+                    music_note = music_err
+            if music_note != "ok":
+                estimated_credits = round(max(0.0, estimated_credits - MUSIC_FLAT_CREDITS), 1)
+                set_status("rendering", new_estimated_credits=estimated_credits)
+            set_status("rendering", extra_params={"music_status": music_note})
+
         # ── Phase 4: Charge credits only on success ──────────────────────────
         charge_credits()
         set_status("completed", output_path=output_path, output_kind=output_kind)
@@ -1496,6 +1548,153 @@ def stitch_shots(shot_clips, output_path, config):
             concat_list_path.unlink(missing_ok=True)
 
 
+def generate_background_music(job_id, music_prompt):
+    """
+    Generate one instrumental track via kie.ai's Suno wrapper.
+    Returns (mp3_path, None) on success, (None, reason) on any failure.
+    Best-effort by design: a music failure must never fail the job — the
+    caller ships the video without music and refunds the flat music fee.
+
+    Request/poll/download shape verified live 2026-07-23:
+      - callBackUrl is REQUIRED at submit even though we poll; a URL that
+        does nothing useful is fine (SUCCESS was reached with one).
+      - Poll statuses: PENDING → TEXT_SUCCESS → FIRST_SUCCESS → SUCCESS.
+      - The audio CDN 403s Python's default User-Agent; send a browser UA.
+    """
+    if not KIE_API_KEY:
+        return None, "KIE_API_KEY not set"
+
+    prompt = (music_prompt or "").strip() or "cinematic instrumental underscore, gentle, atmospheric"
+    if "instrumental" not in prompt.lower():
+        prompt += ", instrumental, no lyrics"
+    callback = (
+        f"{PUBLIC_BASE_URL}/api/music/callback"
+        if PUBLIC_BASE_URL
+        else "https://example.com/api/music/callback"  # required field; polling is the source of truth
+    )
+    payload = {
+        "prompt": prompt[:500],
+        "customMode": False,
+        "instrumental": True,
+        "model": "V5",
+        "callBackUrl": callback,
+    }
+    headers = {"Authorization": f"Bearer {KIE_API_KEY}", "Content-Type": "application/json"}
+
+    try:
+        req = urllib_request.Request(
+            f"{KIE_API_BASE}/generate", data=json.dumps(payload).encode("utf-8"),
+            headers=headers, method="POST",
+        )
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            submit = json.loads(resp.read().decode("utf-8"))
+        if submit.get("code") != 200:
+            return None, f"kie.ai submit rejected: {submit.get('msg')}"
+        task_id = submit["data"]["taskId"]
+    except Exception as exc:
+        return None, f"kie.ai submit error: {exc}"
+
+    deadline = time.monotonic() + MUSIC_POLL_TIMEOUT
+    status = None
+    while time.monotonic() < deadline:
+        time.sleep(MUSIC_POLL_INTERVAL)
+        try:
+            poll = urllib_request.Request(
+                f"{KIE_API_BASE}/generate/record-info?taskId={task_id}", headers=headers
+            )
+            with urllib_request.urlopen(poll, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            continue  # transient; keep polling
+        info = data.get("data") or {}
+        status = info.get("status")
+        tracks = ((info.get("response") or {}).get("sunoData")) or []
+        # CALLBACK_EXCEPTION means their POST to our callback failed — the
+        # tracks themselves may still exist, so treat it as terminal-with-hope.
+        if status == "SUCCESS" or (status == "CALLBACK_EXCEPTION" and tracks):
+            if not tracks:
+                return None, "SUCCESS but no tracks in response"
+            record_music_usage(job_id, task_id, status, tracks[0])
+            try:
+                dl = urllib_request.Request(
+                    tracks[0]["audioUrl"], headers={"User-Agent": MUSIC_DL_USER_AGENT}
+                )
+                with urllib_request.urlopen(dl, timeout=120) as resp:
+                    mp3_path = OUTPUT_DIR / f"{job_id}-music.mp3"
+                    mp3_path.write_bytes(resp.read())
+                return mp3_path, None
+            except Exception as exc:
+                return None, f"music download failed: {exc}"
+        if status in ("CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED", "SENSITIVE_WORD_ERROR",
+                      "CALLBACK_EXCEPTION"):
+            record_music_usage(job_id, task_id, status, None)
+            return None, f"kie.ai task {status}: {info.get('errorMessage') or 'no details'}"
+    return None, f"music generation timed out after {MUSIC_POLL_TIMEOUT}s (status: {status})"
+
+
+def record_music_usage(job_id, task_id, status, track):
+    """provider_usage row for a kie.ai music task (kind='music', provider='kie').
+    Same best-effort contract as record_provider_usage: never raises."""
+    try:
+        conn = new_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO provider_usage (
+                job_id, kind, provider, model, task_id, status,
+                duration_seconds, resolution, completion_tokens, total_tokens, created_at
+            )
+            VALUES (%s, 'music', 'kie', 'suno-V5', %s, %s, %s, NULL, NULL, NULL, %s)
+            """,
+            (job_id, task_id, status,
+             int((track or {}).get("duration") or 0) or None, now_iso()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def mix_music_into_video(video_path, music_path):
+    """
+    Mux/mix the music under the video, in place (temp file + atomic replace).
+    Seedance clips are rendered with generate_audio=False, so the stitched
+    video normally has NO audio stream — in that case the music becomes the
+    only audio track. If an audio stream ever exists (future narration), the
+    music is mixed underneath it at reduced volume instead.
+    Returns (True, "ok") or (False, reason).
+    """
+    tmp_path = video_path.parent / f"{video_path.stem}-music-tmp.mp4"
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", str(video_path)],
+            capture_output=True, text=True,
+        )
+        has_audio = bool(probe.stdout.strip())
+        if has_audio:
+            cmd = [
+                "ffmpeg", "-y", "-i", str(video_path), "-i", str(music_path),
+                "-filter_complex",
+                "[1:a]volume=0.2[music];[0:a][music]amix=inputs=2:duration=first[a]",
+                "-map", "0:v", "-map", "[a]",
+                "-c:v", "copy", "-c:a", "aac", "-shortest", str(tmp_path),
+            ]
+        else:
+            cmd = [
+                "ffmpeg", "-y", "-i", str(video_path), "-i", str(music_path),
+                "-filter_complex", "[1:a]volume=0.5[a]",
+                "-map", "0:v", "-map", "[a]",
+                "-c:v", "copy", "-c:a", "aac", "-shortest", str(tmp_path),
+            ]
+        subprocess.run(cmd, check=True, capture_output=True)
+        os.replace(tmp_path, video_path)
+        return True, "ok"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+        tmp_path.unlink(missing_ok=True)
+        return False, f"ffmpeg mix failed: {exc}"
+
+
 def create_job_record(user_id, original_filename, config, storyboard_text):
     settings = load_settings()
     # Pre-planning gate: character count isn't known yet (that's an LLM step
@@ -1559,6 +1758,15 @@ def studio():
     if not user:
         return redirect("/")
     return render_template("inner.html")
+
+
+@app.route("/api/music/callback", methods=["POST"])
+def music_callback():
+    """kie.ai requires a callBackUrl at submit time even though this app polls
+    for results. This endpoint just acknowledges the delivery — polling in
+    generate_background_music is the source of truth. Unauthenticated by
+    necessity (kie.ai's servers carry no session); it stores nothing."""
+    return jsonify({"success": True})
 
 
 @app.route("/settings")

@@ -578,6 +578,17 @@
               <span>Enable</span>
             </div>
           </div>
+          <div class="footnote">
+            <span class="fn-label">Music</span>
+            <div class="fn-checkbox-row">
+              <input type="checkbox" id="music-enabled" onchange="refreshQuote()">
+              <span>Enable</span>
+            </div>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Music style</span>
+            <input class="fn-input" id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)">
+          </div>
         </div>
       </div>
 
@@ -965,7 +976,9 @@
         direction_temperature: Number(document.getElementById('direction-temperature').value),
         motion_temperature:    Number(document.getElementById('motion-temperature').value),
         dialogue_temperature:  Number(document.getElementById('dialogue-temperature').value),
-        consistency_strength:  Number(document.getElementById('consistency-strength').value)
+        consistency_strength:  Number(document.getElementById('consistency-strength').value),
+        music_enabled: document.getElementById('music-enabled').checked,
+        music_prompt:  document.getElementById('music-prompt').value.trim()
       };
     }
 
@@ -1016,6 +1029,8 @@
         if (cfg.target_duration) document.getElementById('target-duration').value = cfg.target_duration;
         if (cfg.voice_model)     document.getElementById('voice-model').value = cfg.voice_model;
         document.getElementById('narration-enabled').checked = !!cfg.narration_enabled;
+        document.getElementById('music-enabled').checked = !!cfg.music_enabled;
+        document.getElementById('music-prompt').value = cfg.music_prompt || '';
 
         setDialValue('planner',     'planner-temperature',   cfg.planner_temperature);
         setDialValue('direction',   'direction-temperature', cfg.direction_temperature);

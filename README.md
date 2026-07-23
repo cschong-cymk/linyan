@@ -160,6 +160,9 @@ Until step 3 is done, the webhook route returns 503 for everything (it refuses t
 - [x] `index.html` — hero, sticky nav (Studio link now points at the real `/studio` page rather than a dead in-page anchor), "Open Studio →" CTA for logged-in users
 - [x] `inner.html` — studio workspace with job polling, logo links back home, Admin shortcut in the topbar (admins only)
 - [x] `settings.html` — account settings
+- [x] Background music — Suno via kie.ai (verified live 2026-07-23: submit `/api/v1/generate` with required `callBackUrl`, poll `record-info`, download with browser UA). Planner now emits a `music_prompt` for the whole video; user can override it in the Studio form. Flat 10-credit fee, charged only if music actually ships — any music failure ships the video silent and refunds the fee. Mixed via ffmpeg: sole audio track at 0.5 (Seedance clips carry no audio), or under existing audio at 0.2 if narration ever lands.
+- [x] Prompt history — storyboard text stored in Postgres (`jobs.storyboard_text`), survives redeploys; legacy rows fall back to the on-disk file
+- [x] Provider usage capture — `provider_usage` table records per-task tokens/duration for Ark renders and kie.ai music, raw material for margin analysis
 
 ---
 
@@ -223,7 +226,7 @@ Supported languages: EN, ZH, FR, HI, IT, JA, KO, PT, RU, TR, ES, DE, AR, PL, ID,
 
 ---
 
-### 4. 🎵 Background Music — Suno via kie.ai
+### 4. ✅ ~~Background Music — Suno via kie.ai~~ — shipped, see *What's Shipped*
 
 Generate a score from a text prompt and mix it under the final video.
 
@@ -315,7 +318,7 @@ Register a URL to receive job completion POSTs instead of polling. Target: Pro/S
 | `LINYAN_SECRET_KEY` | ✅ | Flask session secret. (Was previously documented here as `SECRET_KEY` — that was always wrong; the code reads `LINYAN_SECRET_KEY`. Falls back to an insecure dev default if unset, so this is required in any real deployment even though the code won't refuse to boot without it.) |
 | `LINYAN_PUBLIC_BASE_URL` | required for character consistency | Your public domain (e.g. `https://linyan.io`). ModelArk's servers — not the user's browser — fetch character reference images from this host, so it needs to be internet-reachable, not localhost. Bare domains without a scheme are auto-prefixed with `https://`. Without this set, character consistency silently falls back to text-only locking — no error. |
 | `SYNC_API_KEY` | planned | sync.so lip sync key |
-| `KIE_API_KEY` | planned | kie.ai Suno music key |
+| `KIE_API_KEY` | required for music | kie.ai Suno music key. Without it, jobs with music enabled complete silently and the music fee is refunded. |
 | `SHOT_POLL_TIMEOUT` | optional | defaults to 600s |
 | `SHOT_POLL_INTERVAL` | optional | defaults to 10s |
 
