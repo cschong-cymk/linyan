@@ -301,6 +301,10 @@ def init_db():
         );
         """
     )
+    # Prompt history: storyboard text lives in the DB, not just as a file on
+    # the ephemeral volume. Older rows have NULL here; job_source falls back
+    # to storyboard_path for those (until the file is lost to a redeploy).
+    cur.execute("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS storyboard_text TEXT;")
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS stripe_events (
@@ -326,6 +330,28 @@ def init_db():
             reason TEXT NOT NULL,
             note TEXT,
             actor_user_id INTEGER,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    # Ground-truth provider usage per Ark task, as reported by the poll
+    # response's `usage` block. Job charges are computed from an internal $/s
+    # assumption table; this is the raw material for verifying that assumption
+    # against actual BytePlus billing (margin/mispricing analysis).
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS provider_usage (
+            id SERIAL PRIMARY KEY,
+            job_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'shot',
+            provider TEXT NOT NULL DEFAULT 'ark',
+            model TEXT NOT NULL,
+            task_id TEXT,
+            status TEXT,
+            duration_seconds INTEGER,
+            resolution TEXT,
+            completion_tokens BIGINT,
+            total_tokens BIGINT,
             created_at TEXT NOT NULL
         );
         """
@@ -619,6 +645,48 @@ def _find_character(name, character_bible):
     return None
 
 
+# Thread-local context for usage recording. run_job_async (one thread per job)
+# sets job_id; generate_character_reference_image flips kind while its clip
+# renders. This avoids threading a usage accumulator through every call layer.
+_usage_ctx = threading.local()
+
+
+def record_provider_usage(config, duration, task_id, status, usage):
+    """Persist one Ark task's reported usage. Best-effort bookkeeping:
+    never raises — a failed insert must not fail a render that already
+    succeeded (or add noise to one that failed)."""
+    if not usage and status != "succeeded":
+        return  # terminal failure with no usage block: nothing billed to record
+    try:
+        conn = new_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO provider_usage (
+                job_id, kind, provider, model, task_id, status,
+                duration_seconds, resolution, completion_tokens, total_tokens, created_at
+            )
+            VALUES (%s, %s, 'ark', %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                getattr(_usage_ctx, "job_id", None),
+                getattr(_usage_ctx, "kind", "shot"),
+                config["video_model"],
+                task_id,
+                status,
+                duration,
+                config.get("resolution"),
+                (usage or {}).get("completion_tokens"),
+                (usage or {}).get("total_tokens"),
+                now_iso(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def submit_and_poll_video_task(content, config, duration, timeout=None):
     """
     Low-level Ark video task submit + poll + download. Shared by call_video_model
@@ -658,7 +726,15 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
         if not task_id:
             return None, f"No task_id in submit response: {submit_data}"
     except urllib_error.HTTPError as exc:
-        return None, f"Submit HTTP {exc.code}: {exc.reason}"
+        # Include the response body: ModelArk 400s carry a structured error
+        # with a `param` field (e.g. "content[1].image_url" when a reference
+        # image couldn't be downloaded) that callers use to decide whether a
+        # retry without image attachments is worth it.
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            body = ""
+        return None, f"Submit HTTP {exc.code}: {exc.reason} {body}".strip()
     except (urllib_error.URLError, json.JSONDecodeError) as exc:
         return None, f"Submit error: {exc}"
 
@@ -678,6 +754,9 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
         status = (poll_data.get("status") or "").lower()
 
         if status in ("succeeded", "completed"):
+            # Record before the download attempt: tokens were spent even if
+            # fetching the finished video subsequently fails.
+            record_provider_usage(config, duration, task_id, status, poll_data.get("usage"))
             video_url = (
                 poll_data.get("content", {}).get("video_url")
                 or poll_data.get("output", {}).get("video_url")
@@ -693,6 +772,9 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
                 return None, f"Download failed: {exc}"
 
         elif status in ("failed", "cancelled", "expired", "error"):
+            # Failed tasks sometimes still report usage (partial billing);
+            # record_provider_usage skips the insert when there's none.
+            record_provider_usage(config, duration, task_id, status, poll_data.get("usage"))
             err = poll_data.get("error") or {}
             return None, f"Task {status}: {err.get('message', 'no details')}"
 
@@ -747,7 +829,11 @@ def generate_character_reference_image(job_id, name, description, config):
     )
     content = [{"type": "text", "text": reference_prompt}]
 
-    video_bytes, _reason = submit_and_poll_video_task(content, config, REFERENCE_CLIP_DURATION)
+    _usage_ctx.kind = "character_ref"
+    try:
+        video_bytes, _reason = submit_and_poll_video_task(content, config, REFERENCE_CLIP_DURATION)
+    finally:
+        _usage_ctx.kind = "shot"
     if video_bytes is None:
         return None
 
@@ -1091,6 +1177,10 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
     real number, not the original guess — without needing `nonlocal`.
     """
     db = new_connection()
+    # Tag this worker thread so every Ark task it submits (shots and
+    # character-reference clips alike) records usage against this job.
+    _usage_ctx.job_id = job_id
+    _usage_ctx.kind = "shot"
 
     def set_status(status, output_path=None, output_kind=None, plan_path=None,
                     extra_params=None, new_estimated_credits=None):
@@ -1257,7 +1347,19 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
     except Exception as exc:
         set_status("failed", extra_params={"error": str(exc)})
     finally:
+        _usage_ctx.job_id = None
         db.close()
+
+
+def _is_image_url_400(reason):
+    """True if a submit failure string is a 400 blaming an image_url entry.
+
+    Matches the error shape observed live: HTTP 400 with
+    param "content[N].image_url" / "resource download failed".
+    """
+    if not reason or "400" not in reason:
+        return False
+    return "image_url" in reason
 
 
 def call_video_model(shot, config, clip_path, character_bible):
@@ -1276,14 +1378,16 @@ def call_video_model(shot, config, clip_path, character_bible):
     same pattern this codebase already uses for text content. Capped at 9
     images, matching Seedance 2.0's published reference-image limit.
 
-    The image_url content-type addition is the one part of this file still
-    unverified against a live call (the submit/poll/download shape itself is
-    proven — it's the same one used for every shot already). Realistic failure
-    modes if `image_url` isn't accepted here: the API 400s on submit (already
-    caught — fails just this one shot, job continues with whatever did
-    succeed), or it's silently ignored (back to text-only consistency for this
-    shot, no worse than before). Confirm against your account before assuming
-    it's actually conditioning on the image.
+    The image_url content type was verified against a live ModelArk call on
+    2026-07-23: the schema is accepted and the output genuinely conditions on
+    the reference image. One failure mode discovered in that test: ModelArk's
+    servers download each image_url themselves at submit time, and if that
+    download fails (host blocks their fetcher, LINYAN_PUBLIC_BASE_URL
+    misconfigured/unreachable, stale URL) the API 400s with param
+    "content[N].image_url" — killing the whole shot, not just the image. So on
+    an image-related 400 we retry once with text-only content: character
+    consistency degrades to text-locking for that shot instead of losing the
+    shot entirely.
     """
     prompt_parts = [shot["prompt"]]
     if shot.get("camera"):
@@ -1307,6 +1411,14 @@ def call_video_model(shot, config, clip_path, character_bible):
             attached_urls.add(ref_url)
 
     video_bytes, reason = submit_and_poll_video_task(content, config, duration)
+    if video_bytes is None and attached_urls and _is_image_url_400(reason):
+        # A reference image couldn't be fetched by ModelArk — drop the images
+        # and retry once so the shot still renders with text-only consistency.
+        video_bytes, retry_reason = submit_and_poll_video_task(
+            [content[0]], config, duration
+        )
+        if video_bytes is None:
+            return False, f"{retry_reason} (after image_url retry; original: {reason})"
     if video_bytes is None:
         return False, reason
     try:
@@ -1410,16 +1522,16 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
         INSERT INTO jobs (
             id, user_id, title, status, original_filename, storyboard_path, render_plan_path,
             output_path, output_kind, planner_model, video_model, provider, estimated_credits,
-            params_json, created_at, updated_at
+            params_json, storyboard_text, created_at, updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             job_id, user_id, config["title"], "queued", original_filename,
             str(storyboard_path), None,
             str(OUTPUT_DIR / f"{job_id}.mp4"), "mp4",
             config["planner_model"], config["video_model"], provider, estimated_credits,
-            json.dumps(config), timestamp, timestamp,
+            json.dumps(config), storyboard_text, timestamp, timestamp,
         ),
         commit=True,
     )
@@ -1919,19 +2031,23 @@ def job_source(job_id):
     is just the first endpoint that actually exposes either of them.
     """
     cur = db_execute(
-        "SELECT id, title, storyboard_path, params_json FROM jobs WHERE id = %s AND user_id = %s",
+        "SELECT id, title, storyboard_path, storyboard_text, params_json FROM jobs WHERE id = %s AND user_id = %s",
         (job_id, g.current_user["id"]),
     )
     row = cur.fetchone()
     if not row:
         return jsonify({"error": "Job not found."}), 404
-    path = Path(row["storyboard_path"])
-    if not path.exists():
-        return jsonify({"error": "Original storyboard file is missing on disk."}), 404
-    try:
-        storyboard_text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return jsonify({"error": "Could not read the original storyboard file."}), 500
+    storyboard_text = row.get("storyboard_text")
+    if not storyboard_text:
+        # Legacy job created before storyboard_text was stored in the DB —
+        # fall back to the on-disk file, which survives only until a redeploy.
+        path = Path(row["storyboard_path"])
+        if not path.exists():
+            return jsonify({"error": "Original storyboard file is missing on disk."}), 404
+        try:
+            storyboard_text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return jsonify({"error": "Could not read the original storyboard file."}), 500
     return jsonify({
         "id": row["id"],
         "title": row["title"],
@@ -2057,23 +2173,27 @@ def admin_topup():
 @admin_required
 def admin_settings():
     payload = request.get_json(silent=True) or {}
-    save_setting("allow_signup", bool(payload.get("allow_signup")))
-    save_setting(
-        "margin_multiplier",
-        clamp_float(payload.get("margin_multiplier"), 1.5, 0.5, 5.0),
-    )
-    save_setting(
-        "signup_bonus_credits",
-        clamp_float(payload.get("signup_bonus_credits"), 120.0, 0.0, 5000.0),
-    )
-    save_setting(
-        "quote_character_assumption",
-        clamp_int(payload.get("quote_character_assumption"), 2, 0, 20),
-    )
-    # Only saved when the client actually sent it. The unconditional saves
-    # above silently reset a setting to its default whenever a form that
-    # doesn't include that field posts (index.html's admin form omits
-    # quote_character_assumption, for example) — not repeating that here.
+    # Every setting is saved ONLY if its key is present in the payload.
+    # The previous unconditional saves silently reset any omitted setting to
+    # its default on every POST — which is how allow_signup ended up False
+    # (locking out signups) without anyone unchecking the box.
+    if "allow_signup" in payload:
+        save_setting("allow_signup", bool(payload.get("allow_signup")))
+    if "margin_multiplier" in payload:
+        save_setting(
+            "margin_multiplier",
+            clamp_float(payload.get("margin_multiplier"), 1.5, 0.5, 5.0),
+        )
+    if "signup_bonus_credits" in payload:
+        save_setting(
+            "signup_bonus_credits",
+            clamp_float(payload.get("signup_bonus_credits"), 120.0, 0.0, 5000.0),
+        )
+    if "quote_character_assumption" in payload:
+        save_setting(
+            "quote_character_assumption",
+            clamp_int(payload.get("quote_character_assumption"), 2, 0, 20),
+        )
     if "credits_per_dollar" in payload:
         save_setting(
             "credits_per_dollar",
