@@ -70,6 +70,10 @@ MUSIC_DL_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebK
 STRIPE_PAYMENT_LINK = os.environ.get(
     "STRIPE_PAYMENT_LINK", "https://buy.stripe.com/fZueVd17u5Au5mU88z8Vi00"
 ).strip()
+
+# Stripe Secret Key - required for Checkout Sessions API
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+
 # Webhook signing secret ("whsec_...") from the Stripe Dashboard endpoint you
 # create at Developers → Webhooks → Add endpoint → https://<domain>/api/stripe/webhook.
 # REQUIRED for payments to credit accounts. Without it the webhook endpoint
@@ -1899,25 +1903,112 @@ def logout():
 @app.route("/billing/checkout")
 @login_required
 def billing_checkout():
-    """Send the logged-in user to the Stripe Payment Link.
+    """Create a Stripe Checkout Session and redirect the user to it.
 
-    We append client_reference_id=<user_id> (a documented Payment Link URL
-    parameter) so the checkout.session.completed webhook can attribute the
-    payment to this account, plus prefilled_email as a human-visible anchor
-    and email-match fallback. Users who pay via the raw link instead of this
-    route can only be matched by email — if their Stripe receipt email differs
-    from their Linyan email, the payment lands as 'unmatched' in stripe_events
-    and needs a manual admin top-up.
+    Uses Stripe's Checkout Sessions API for full control over the payment flow.
+    The session includes client_reference_id=<user_id> so the checkout.session.completed
+    webhook can attribute the payment to this account.
+
+    Success URL: https://linyan.io/checkout/success?session_id={CHECKOUT_SESSION_ID}
+    Cancel URL:  https://linyan.io/checkout/cancel
+
+    Note: Requires STRIPE_SECRET_KEY to be set in environment variables.
     """
-    if not STRIPE_PAYMENT_LINK:
-        return jsonify({"error": "Payments are not configured on this host."}), 503
-    sep = "&" if "?" in STRIPE_PAYMENT_LINK else "?"
-    url = (
-        f"{STRIPE_PAYMENT_LINK}{sep}"
-        f"client_reference_id={g.current_user['id']}"
-        f"&prefilled_email={url_quote(g.current_user['email'])}"
-    )
-    return redirect(url)
+    if not STRIPE_SECRET_KEY:
+        return jsonify({"error": "Stripe payments are not configured on this host. Please contact support."}), 503
+
+    try:
+        import stripe
+        stripe.api_key = STRIPE_SECRET_KEY
+
+        # Create a new Checkout Session
+        checkout_session = stripe.checkout.sessions.create(
+            payment_method_types=["card"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": "Linyan Credits",
+                            "description": "Credits for AI video generation",
+                        },
+                        "unit_amount": 1000,  # $10.00 in cents
+                    },
+                    "quantity": 1,
+                },
+            ],
+            mode="payment",
+            client_reference_id=str(g.current_user["id"]),
+            customer_email=g.current_user["email"],
+            success_url="https://linyan.io/checkout/success?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url="https://linyan.io/checkout/cancel",
+            metadata={
+                "user_id": str(g.current_user["id"]),
+                "email": g.current_user["email"],
+            },
+        )
+
+        print(f"[CHECKOUT] Created session: {checkout_session.id} for user {g.current_user['id']}")
+        return redirect(checkout_session.url)
+    except Exception as e:
+        print(f"[CHECKOUT] ERROR: {e}")
+        return jsonify({"error": f"Failed to create checkout session: {str(e)}"}), 500
+
+
+@app.route("/checkout/success")
+@login_required
+def checkout_success():
+    """Handle successful checkout completion."""
+    session_id = request.args.get("session_id", "")
+    print(f"[CHECKOUT SUCCESS] User {g.current_user['id']} returned from Stripe, session_id: {session_id}")
+    return """
+    <html>
+    <head><title>Payment Successful</title></head>
+    <body>
+        <h1>Payment Successful!</h1>
+        <p>Thank you for your payment. Your credits have been added to your account.</p>
+        <p><a href="/studio">Return to Studio</a></p>
+        <script>
+            // Refresh the session to update credit balance
+            fetch('/api/session', { credentials: 'include' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.user) {
+                        console.log('Session refreshed:', data.user);
+                    }
+                })
+                .catch(err => console.error('Failed to refresh session:', err));
+            // Auto-redirect after 3 seconds
+            setTimeout(() => {
+                window.location.href = '/studio';
+            }, 3000);
+        </script>
+    </body>
+    </html>
+    """
+
+
+@app.route("/checkout/cancel")
+@login_required
+def checkout_cancel():
+    """Handle cancelled checkout."""
+    print(f"[CHECKOUT CANCEL] User {g.current_user['id']} cancelled checkout")
+    return """
+    <html>
+    <head><title>Payment Cancelled</title></head>
+    <body>
+        <h1>Payment Cancelled</h1>
+        <p>Your payment was cancelled. No charges were made to your account.</p>
+        <p><a href="/studio">Return to Studio</a></p>
+        <script>
+            // Auto-redirect after 3 seconds
+            setTimeout(() => {
+                window.location.href = '/studio';
+            }, 3000);
+        </script>
+    </body>
+    </html>
+    """
 
 
 def verify_stripe_signature(payload_bytes, sig_header):
@@ -1994,16 +2085,27 @@ def stripe_webhook():
     transaction on one connection, so a crash can't leave a claimed-but-
     uncredited event.
     """
-    if not STRIPE_WEBHOOK_SECRET:
-        # Refuse rather than trust: without signature verification this route
-        # would let anyone mint credits with a hand-written POST.
-        return jsonify({"error": "Stripe webhook secret not configured."}), 503
+    # Debug logging
+    print(f"[WEBHOOK] Received POST at /api/stripe/webhook")
+    print(f"[WEBHOOK] Headers: {dict(request.headers)}")
     payload = request.get_data()
+    print(f"[WEBHOOK] Raw payload: {payload.decode('utf-8')[:500]}...")
+
+    if not STRIPE_WEBHOOK_SECRET:
+        print("[WEBHOOK] ERROR: Stripe webhook secret not configured.")
+        return jsonify({"error": "Stripe webhook secret not configured."}), 503
+
     if not verify_stripe_signature(payload, request.headers.get("Stripe-Signature")):
+        print("[WEBHOOK] ERROR: Invalid signature.")
         return jsonify({"error": "Invalid signature."}), 400
+    print("[WEBHOOK] Signature verified successfully.")
+
     try:
         event = json.loads(payload)
-    except json.JSONDecodeError:
+        print(f"[WEBHOOK] Event type: {event.get('type', 'unknown')}")
+        print(f"[WEBHOOK] Event ID: {event.get('id', 'unknown')}")
+    except json.JSONDecodeError as e:
+        print(f"[WEBHOOK] ERROR: Malformed payload - {e}")
         return jsonify({"error": "Malformed payload."}), 400
 
     event_type = event.get("type", "")
@@ -2014,27 +2116,35 @@ def stripe_webhook():
         "checkout.session.async_payment_succeeded",
     )
     if event_type not in checkout_events + ("invoice.payment_succeeded",):
+        print(f"[WEBHOOK] Ignoring event type: {event_type}")
         return jsonify({"received": True, "ignored": event_type})
 
     # Extract who-paid-what per event shape.
     user_id = None
     email = None
     if event_type in checkout_events:
-        if obj.get("payment_status") != "paid":
+        payment_status = obj.get("payment_status")
+        print(f"[WEBHOOK] Checkout payment_status: {payment_status}")
+        if payment_status != "paid":
             # Delayed payment methods complete the session before money moves;
             # the async_payment_succeeded event will follow if it clears.
+            print("[WEBHOOK] Payment not yet paid, will retry.")
             return jsonify({"received": True, "pending": True})
         ref = obj.get("client_reference_id")
         if ref and str(ref).isdigit():
             user_id = int(ref)
+            print(f"[WEBHOOK] User ID from client_reference_id: {user_id}")
         email = ((obj.get("customer_details") or {}).get("email")
                  or obj.get("customer_email") or "").strip().lower()
+        print(f"[WEBHOOK] Customer email: {email}")
         amount_cents = obj.get("amount_total")
         currency = (obj.get("currency") or "").lower()
+        print(f"[WEBHOOK] Amount: {amount_cents} {currency}")
     else:  # invoice.payment_succeeded
         if obj.get("billing_reason") == "subscription_create":
             # First invoice of a subscription — already credited via the
             # checkout.session.completed event for the same purchase.
+            print("[WEBHOOK] Skipping subscription_create invoice (already credited).")
             return jsonify({"received": True, "skipped": "subscription_create"})
         email = (obj.get("customer_email") or "").strip().lower()
         amount_cents = obj.get("amount_paid")
@@ -2050,6 +2160,7 @@ def stripe_webhook():
         # here and gets acked without re-crediting.
         cur.execute("SELECT 1 FROM stripe_events WHERE event_id = %s", (event.get("id"),))
         if cur.fetchone():
+            print("[WEBHOOK] Duplicate event, skipping.")
             db.rollback()
             return jsonify({"received": True, "duplicate": True})
 
@@ -2057,6 +2168,7 @@ def stripe_webhook():
             record_stripe_event(cur, event, obj, "skipped", "Zero or missing amount.",
                                 amount_cents=amount_cents, currency=currency)
             db.commit()
+            print("[WEBHOOK] Skipped - zero/missing amount.")
             return jsonify({"received": True, "skipped": "zero_amount"})
 
         if currency != "usd":
@@ -2066,6 +2178,7 @@ def stripe_webhook():
                                 f"Non-USD currency '{currency}' — resolve manually.",
                                 amount_cents=amount_cents, currency=currency)
             db.commit()
+            print(f"[WEBHOOK] Unmatched - non-USD currency: {currency}")
             return jsonify({"received": True, "unmatched": "currency"})
 
         # Resolve the user: explicit client_reference_id first, email fallback.
@@ -2073,18 +2186,22 @@ def stripe_webhook():
         if user_id is not None:
             cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
             target = cur.fetchone()
+            print(f"[WEBHOOK] Found user by ID: {target}")
         if not target and email:
             cur.execute("SELECT id FROM users WHERE email = %s", (email,))
             target = cur.fetchone()
+            print(f"[WEBHOOK] Found user by email: {target}")
         if not target:
             record_stripe_event(cur, event, obj, "unmatched",
                                 f"No account matched (email: {email or 'none'}). "
                                 "Top up manually from the admin panel.",
                                 amount_cents=amount_cents, currency=currency)
             db.commit()
+            print(f"[WEBHOOK] Unmatched - no account for email: {email}")
             return jsonify({"received": True, "unmatched": "no_account"})
 
         credits = round((amount_cents / 100.0) * credits_per_dollar, 1)
+        print(f"[WEBHOOK] Crediting {credits} credits to user {target['id']}")
         record_stripe_event(cur, event, obj, "credited", email or "",
                             user_id=target["id"], credits=credits,
                             amount_cents=amount_cents, currency=currency)
@@ -2107,8 +2224,10 @@ def stripe_webhook():
             ),
         )
         db.commit()
-    except Exception:
+        print("[WEBHOOK] SUCCESS - credits added.")
+    except Exception as e:
         db.rollback()
+        print(f"[WEBHOOK] ERROR: {e}")
         raise
     return jsonify({"received": True, "credited": True})
 
