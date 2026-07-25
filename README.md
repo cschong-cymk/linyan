@@ -9,6 +9,94 @@ A hosted web app that turns prose storyboards into finished MP4 artifacts. Write
 
 ---
 
+## Setup Guide
+
+### Prerequisites
+
+- Python 3.9+
+- PostgreSQL 12+
+- ffmpeg
+- pip (Python package manager)
+
+### 1. Clone the Repository
+
+```bash
+cd /Volumes/MyData/.openclaw/workspace-anthony/linyan
+```
+
+### 2. Create and Activate a Virtual Environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On macOS/Linux
+# On Windows: venv\Scripts\activate
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install flask psycopg2-binary requests
+```
+
+### 4. Set Up PostgreSQL Database
+
+```bash
+# Create the database
+createdb linyan
+
+# Or using psql:
+psql -U postgres
+CREATE DATABASE linyan;
+\q
+```
+
+### 5. Configure Environment Variables
+
+Create a `.env` file in the project root:
+
+```bash
+ARK_API_KEY=your_byteplus_modelark_api_key
+DATABASE_URL=postgresql://username:password@localhost:5432/linyan
+LINYAN_SECRET_KEY=your_fallback_secret_key_here
+LINYAN_PUBLIC_BASE_URL=https://your-domain.com
+SYNC_API_KEY=your_syncso_api_key  # Optional
+KIE_API_KEY=your_kieai_api_key    # Optional, needed for background music
+STRIPE_PAYMENT_LINK=https://buy.stripe.com/your_payment_link
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+```
+
+**Required Variables:**
+- `ARK_API_KEY` - BytePlus ModelArk API key
+- `DATABASE_URL` - PostgreSQL connection string
+- `LINYAN_SECRET_KEY` - Flask session secret (generate with `openssl rand -hex 32`)
+
+**Optional Variables:**
+- `LINYAN_PUBLIC_BASE_URL` - Required for character consistency (reference images)
+- `SYNC_API_KEY` - For lip sync feature
+- `KIE_API_KEY` - For background music feature
+- `STRIPE_PAYMENT_LINK` - Stripe Payment Link URL
+- `STRIPE_WEBHOOK_SECRET` - Stripe webhook signing secret
+
+### 6. Initialize the Database
+
+Run the app once to create tables:
+
+```bash
+python app.py
+```
+
+This will automatically create the required database tables. Stop the server with Ctrl+C.
+
+### 7. Run the Application
+
+```bash
+python app.py
+```
+
+The app will start on `http://localhost:5000`
+
+---
+
 ## Quick Start
 
 ```bash
