@@ -1922,7 +1922,7 @@ def billing_checkout():
         stripe.api_key = STRIPE_SECRET_KEY
 
         # Create a new Checkout Session
-        checkout_session = stripe.checkout.sessions.create(
+        checkout_session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             line_items=[
                 {
@@ -1951,8 +1951,10 @@ def billing_checkout():
         print(f"[CHECKOUT] Created session: {checkout_session.id} for user {g.current_user['id']}")
         return redirect(checkout_session.url)
     except Exception as e:
-        print(f"[CHECKOUT] ERROR: {e}")
-        return jsonify({"error": f"Failed to create checkout session: {str(e)}"}), 500
+        import traceback
+        traceback.print_exc()
+        print(f"[CHECKOUT] ERROR: {type(e).__name__}: {e}")
+        return jsonify({"error": f"Failed to create checkout session: {type(e).__name__}: {e}"}), 500
 
 
 @app.route("/checkout/success")
