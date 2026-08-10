@@ -1763,8 +1763,6 @@ def privacy():
 def terms():
     return render_template("terms.html")
 
-# def index():
-    return render_template("index.html")
 
 
 @app.route("/studio")
