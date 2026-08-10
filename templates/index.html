@@ -122,6 +122,19 @@
       flex-shrink: 0;
     }
 
+    .topbar-links {
+      display: flex; align-items: center; gap: 20px;
+    }
+    .topbar-link {
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .topbar-link:hover {
+      color: var(--violet);
+    }
+
     /* ── hero content ── */
     .hero-content {
       position: relative; z-index: 2;
@@ -699,6 +712,25 @@
         gap: 12px;
       }
       .topbar .byte-badge { width: 100%; }
+      .topbar .topbar-links {
+        width: 100%;
+        display: flex !important;
+        flex-direction: column;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .topbar .topbar-link {
+        display: block;
+        padding: 8px 12px;
+        width: 100%;
+        background: rgba(255,255,255,0.04);
+        border-radius: 6px;
+        text-align: center;
+        font-size: 13px;
+      }
+      .topbar .topbar-link:hover {
+        background: rgba(255,255,255,0.08);
+      }
     }
 
     /* ═══════════ LEGIBILITY PASS — larger type, stronger contrast ═══════════ */
@@ -733,6 +765,97 @@
     .shell .workspace-email,.shell .badge-dim{color:#b3a6cc;}
     .shell .input-tab{color:#b3a6cc;}
     .shell input::placeholder,.shell textarea::placeholder{color:#7d70a0;}
+
+    /* ═════════════════════════════════════════════════════════════════════
+       4.7" IPS LCD (720x1280, ~312 ppi) OPTIMIZATION
+       Targeting iPhone 6/7/8 size with good readability and touch targets
+       ═════════════════════════════════════════════════════════════════════ */
+    @media (max-width: 375px) {
+      /* hero adjustments for smaller phones */
+      .hero-content,
+      .hero-split-text {
+        padding: 0 16px 48px;
+      }
+      .hero-h1 {
+        font-size: clamp(2.2rem, 8vw, 3rem);
+      }
+      .hero-sub {
+        font-size: 14px;
+        line-height: 1.65;
+      }
+      .pipeline {
+        width: 100%;
+        overflow-x: auto;
+      }
+      .pipe-step {
+        min-width: 88px;
+        padding: 12px 14px;
+      }
+      .pipe-label {
+        font-size: 12px;
+      }
+      .pipe-num {
+        font-size: 9px;
+      }
+
+      /* topbar compacted */
+      .topbar {
+        padding: 8px 16px;
+        height: auto;
+      }
+      .topbar .topbar-link {
+        font-size: 11px;
+        padding: 6px 10px;
+      }
+      .topbar-meta {
+        font-size: 11px;
+        gap: 10px;
+      }
+      .byte-badge {
+        padding: 4px 10px;
+        font-size: 10px;
+      }
+
+      /* buttons touch-optimized */
+      .btn {
+        padding: 10px 20px;
+        font-size: 12px;
+      }
+      .btn-primary {
+        font-size: 12px;
+        padding: 12px 24px;
+      }
+
+      /* form fields */
+      input, select, textarea {
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      .range-meta {
+        font-size: 11px;
+      }
+
+      /* stats and cards */
+      .stat {
+        padding: 10px 14px;
+      }
+      .card {
+        padding: 20px 16px;
+      }
+
+      /* footer nav on small screens */
+      .hamburger {
+        width: 38px;
+        height: 38px;
+      }
+      .hamburger span {
+        width: 20px;
+        height: 2px;
+      }
+      .topbar.nav-open .topbar-right {
+        top: calc(100% + 6px);
+      }
+    }
   </style>
 </head>
 <body>
@@ -749,6 +872,10 @@
         <span class="logo-en">Story · to · Screen</span>
       </div>
       <div class="topbar-right">
+        <div class="topbar-links">
+          <a href="/privacy" class="topbar-link">Privacy</a>
+          <a href="/terms" class="topbar-link">Terms</a>
+        </div>
         <div class="topbar-meta">
           <div class="meta-item">
             <span class="dot" id="dot-router"></span>
