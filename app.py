@@ -1755,6 +1755,17 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
 def index():
     return render_template("index.html")
 
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+# def index():
+    return render_template("index.html")
+
 
 @app.route("/studio")
 def studio():
