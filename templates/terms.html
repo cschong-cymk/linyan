@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — 琳嫣</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400&family=Noto+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void:    #0d0b13;
+      --deep:    #131020;
+      --layer:   #1a1628;
+      --panel:   #201c30;
+      --lift:    #27213a;
+      --line:    rgba(200,170,220,0.12);
+      --line2:   rgba(200,170,220,0.22);
+      --ink:     #f2eef8;
+      --mid:     #c8bce0;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --mauve:   #e879f9;
+      --rose:    #f0abfc;
+      --sakura:  #f9a8c9;
+      --petal:   #fbd0e4;
+      --blush:   #fce7f3;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
+      --r: 10px;
+      --serif: "Noto Serif SC", "Noto Serif", Georgia, serif;
+      --sans:  "Noto Sans", system-ui, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      font-size: 16px; font-weight: 400; line-height: 1.7;
+      color: var(--ink); background: var(--void); min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── topbar ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 48px; height: 64px;
+      background: rgba(19,16,32,0.85); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .logo-block { display: flex; align-items: baseline; gap: 14px; }
+    .logo-zh {
+      font-family: var(--serif); font-weight: 400; font-size: 22px;
+      letter-spacing: 0.2em; color: var(--ink);
+    }
+    .logo-en {
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); font-weight: 300;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 24px; }
+    .topbar-meta {
+      display: flex; align-items: center; gap: 20px;
+      font-size: 12px; color: var(--muted); font-weight: 300;
+    }
+
+    .btn {
+      display:inline-flex; align-items:center; justify-content:center;
+      gap:8px; padding:11px 24px; border-radius:var(--r); border:none;
+      font:300 13px var(--sans); letter-spacing:0.08em;
+      cursor:pointer; transition:all 0.18s; white-space:nowrap;
+    }
+    .btn-ghost {
+      background:transparent; border:1px solid var(--line2); color:var(--muted);
+    }
+    .btn-ghost:hover { background:var(--lift); color:var(--ink); border-color:var(--muted); }
+    .btn-primary {
+      background: linear-gradient(120deg, var(--violet), var(--sakura));
+      color: #fff;
+      box-shadow: 0 0 20px rgba(167,139,250,0.25);
+    }
+    .btn-primary:hover {
+      box-shadow: 0 0 32px rgba(167,139,250,0.4);
+      transform: translateY(-1px);
+    }
+
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      gap: 5px;
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: #f3e7d8;
+      border-radius: 2px;
+      transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+    .topbar.nav-open .hamburger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .topbar.nav-open .hamburger span:nth-child(2) { opacity: 0; }
+    .topbar.nav-open .hamburger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+    /* ── content shell ── */
+    .shell {
+      max-width: 880px; margin: 0 auto;
+      padding: 80px 48px 120px;
+    }
+
+    /* ── legal header ── */
+    .legal-header {
+      margin-bottom: 56px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line);
+    }
+    .legal-badge {
+      display:inline-block; font-size:11px; letter-spacing:0.18em; text-transform:uppercase;
+      padding:4px 10px; border-radius:4px;
+      background:rgba(167,139,250,0.12); color:var(--violet); margin-bottom:16px;
+    }
+    .legal-title {
+      font-family:var(--serif); font-size:3rem; font-weight:300; line-height:1.2;
+      color:var(--ink); margin-bottom:12px; letter-spacing:0.02em;
+    }
+    .legal-meta {
+      font-size:13px; color:var(--muted); margin-top:20px;
+    }
+    .legal-meta span { display:inline-block; min-width:110px; color:var(--ghost); }
+    .legal-meta strong { color:var(--ink); }
+
+    /* ── sections ── */
+    .section { margin-bottom: 48px; }
+    .section-title {
+      font-size:1.5rem; font-weight:400; color:var(--ink); margin-bottom:18px;
+      padding-bottom:10px; border-bottom:1px solid var(--line);
+    }
+    .section-subtitle {
+      font-size:13px; color:var(--muted); margin-top:14px; margin-bottom:18px;
+    }
+
+    /* ── body text ── */
+    p { margin-bottom: 16px; }
+    li { margin-bottom: 10px; }
+
+    strong { color: var(--ink); font-weight: 500; }
+    a { color: var(--violet); text-decoration: none; }
+    a:hover { color: var(--lavender); text-decoration: underline; }
+
+    .note {
+      margin-top:20px; padding:16px 20px;
+      background:rgba(249,168,201,0.08); border-left:3px solid var(--sakura);
+      border-radius:0 var(--r) var(--r) 0; font-size:13px; color:rgba(249,168,201,0.9);
+      line-height:1.7;
+    }
+    .warning {
+      margin-top:20px; padding:16px 20px;
+      background:rgba(252,211,77,0.1); border-left:3px solid var(--warn);
+      border-radius:0 var(--r) var(--r) 0; font-size:13px; color:rgba(252,211,77,0.95);
+      line-height:1.7;
+    }
+
+    /* ── list styles ── */
+    ul { padding-left: 24px; }
+    ol { padding-left: 24px; }
+
+    /* ── cookie table ── */
+    .cookie-table { width:100%; border-collapse:collapse; margin-top:16px; font-size:13px; }
+    .cookie-table th { text-align:left; padding:10px 12px; background:rgba(167,139,250,0.08); color:var(--ghost); font-weight:400; border-bottom:1px solid var(--line); }
+    .cookie-table td { padding:10px 12px; border-bottom:1px solid var(--line); color:var(--mid); vertical-align:top; }
+    .cookie-table tr:last-child td { border-bottom:none; }
+    .cookie-table .name strong { color:var(--ink); }
+
+    /* ── footer ── */
+    .footer {
+      text-align:center; padding:48px 0 32px; color:var(--ghost); font-size:12px;
+      border-top:1px solid var(--line);
+    }
+
+    /* ── dark interior overrides ── */
+    .shell { background:#100d1a; border-top:1px solid rgba(200,170,220,0.14); }
+    .shell, .shell * {
+      --layer:   #1a1628;
+      --panel:   #201c30;
+      --lift:    #27213a;
+      --line:    rgba(200,170,220,0.12);
+      --line2:   rgba(200,170,220,0.22);
+      --ink:     #f2eef8;
+      --mid:     #c8bce0;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --sakura:  #f9a8c9;
+      --petal:   #fbd0e4;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
+    }
+    .shell .legal-title { color: #f2eef8; }
+    .shell .legal-badge { background: rgba(167,139,250,0.15); color: #a78bfa; }
+    .shell .section-title { color: #f2eef8; border-color: rgba(200,170,220,0.12); }
+    .shell .section-subtitle, .shell .cookie-table th, .shell .cookie-table td, .shell .legal-meta, .shell .note, .shell .warning { color: #c8bce0; }
+    .shell .cookie-table .name strong { color: #f2eef8; }
+    .shell a { color: #c4b5fd; }
+    .shell a:hover { color: #f9a8c9; }
+    .shell .legal-meta strong { color: #f2eef8; }
+    .shell .btn-ghost { border-color: rgba(200,170,220,0.22); color: #c8bce0; }
+    .shell .btn-ghost:hover { background: rgba(200,170,220,0.08); color: #f2eef8; }
+    .shell .btn-primary { background: linear-gradient(135deg, #a78bfa, #8b6df0) !important; color: #ffffff !important; box-shadow: 0 4px 14px rgba(139,109,240,0.35) !important; }
+    .shell .btn-primary:hover { background: linear-gradient(135deg, #b9a3fb, #9d80f4) !important; transform: translateY(-1px); }
+    .shell .note { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.35); color: #c4b5fd; }
+    .shell .warning { background: rgba(252,211,77,0.12); border-color: rgba(252,211,77,0.35); color: #fcd34d; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 1024px) {
+      .topbar, .shell { padding: 0 32px 72px; }
+    }
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: nowrap; padding: 12px 20px; height: auto; }
+      .topbar-right { gap: 14px; }
+      .shell { padding: 48px 20px 80px; }
+      .legal-title { font-size: 2rem; }
+      .topbar .topbar-right {
+        position: absolute; top: 100%; right: 16px; left: 16px;
+        display: none; flex-direction: column; gap: 16px; padding: 18px 20px;
+        background: #16121f; border: 1px solid var(--line2); border-radius: 12px;
+      }
+      .topbar.nav-open .topbar-right { display: flex; }
+      .topbar .topbar-meta { flex-direction: column; align-items: flex-start; gap: 12px; }
+    }
+    @media (max-width: 480px) {
+      .topbar-meta { display: none; }
+      .shell { padding: 40px 16px 64px; }
+      .legal-title { font-size: 1.75rem; }
+    }
+
+    .hamburger { display: none; }
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: nowrap; }
+      .hamburger { display: flex; }
+      .topbar-right { position: absolute; top: 100%; right: 16px; left: 16px; display: none; }
+      .topbar.nav-open .topbar-right { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <div class="logo-block">
+      <a href="/" style="text-decoration:none; display:flex; align-items:baseline; gap:14px;">
+        <span class="logo-zh">琳嫣</span>
+        <span class="logo-en">Story · to · Screen</span>
+      </a>
+    </div>
+    <div class="topbar-right">
+      <a href="/" class="btn btn-ghost">Back to home</a>
+    </div>
+    <button class="hamburger" id="navToggle" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <!-- ── CONTENT ── -->
+  <main class="shell">
+    <div class="legal-header">
+      <span class="legal-badge">Terms of Service</span>
+      <h1 class="legal-title">Welcome to 琳嫣</h1>
+      <div class="legal-meta">
+        <span>Last updated:</span> <strong id="policy-date">August 10, 2026</strong><br>
+        <span>Agreement with:</span> <strong>琳嫣 Platform</strong><br>
+        <span>Effective date:</span> <strong>August 10, 2026</strong>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2 class="section-title">1. Acceptance of Terms</h2>
+      <p class="section-subtitle">By accessing or using 琳嫣 (the "Service"), you agree to be bound by these Terms and all applicable laws and regulations.</p>
+
+      <p>If you are agreeing to these terms on behalf of a company or organization, you represent and warrant that you have the authority to bind that entity to these terms. If you do not have such authority or do not agree with these terms, you may not use the Service.</p>
+
+      <p><strong>Age requirement:</strong> You must be at least 13 years old (or the minimum age in your jurisdiction) to use this Service. If you are under 13, you may not create an account or use our services.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">2. Description of Service</h2>
+
+      <p>琳嫣 (Linyan) is an AI-powered video creation platform that transforms story text into finished video content. Our services include:</p>
+
+      <ul>
+        <li><strong>Story-to-video generation:</strong> Convert text stories into structured storyboards and video content using AI</li>
+        <li><strong>AI planning:</strong> Automatically generate shot lists, scene descriptions, and motion instructions</li>
+        <li><strong>Video rendering:</strong> Generate final video artifacts using advanced video generation models</li>
+        <li><strong>Workspace management:</strong> Manage projects, credits, and team collaboration</li>
+        <li><strong>Content delivery:</strong> Download generated videos and associated files</li>
+      </ul>
+
+      <p><strong>Third-party integrations:</strong> Our services integrate with models and infrastructure provided by ByteDance through the Flowdaptor platform. We do not control these third-party services.</p>
+
+      <div class="warning">
+        <strong>AI-generated content disclaimer:</strong> The Service generates content using AI models. While we strive for accuracy and quality, generated content may contain inaccuracies, inappropriate material, or content that does not meet your expectations. You are solely responsible for reviewing and approving all generated content before publication or distribution.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">3. Account Registration</h2>
+
+      <p><strong>Account requirements:</strong> To access certain features of the Service, you must create an account. When registering, you agree to:</p>
+
+      <ul>
+        <li>Provide accurate, current, and complete information</li>
+        <li>Maintain and update your account information</li>
+        <li>Keep your password secure and confidential</li>
+        <li>Accept responsibility for all activities under your account</li>
+      </ul>
+
+      <p><strong>Account security:</strong> You are responsible for maintaining the confidentiality of your account credentials and for all activities that occur under your account. You agree to notify us immediately of any unauthorized use of your account.</p>
+
+      <p><strong>Account termination:</strong> We may suspend or terminate your account at our sole discretion, including for violations of these terms or suspicious activity. Upon termination, your access to the Service will be immediately closed.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">4. User Content and Intellectual Property</h2>
+
+      <p><strong>Your content ownership:</strong> You retain all ownership rights to any content you submit to the Service (your "Input"). By submitting content to the Service, you grant us a limited, non-exclusive, worldwide license to use, process, and store your content solely to provide the Service.</p>
+
+      <p><strong>Generated content ownership:</strong> Subject to your compliance with these terms and payment of applicable fees, you own all rights, title, and interest in the video content generated by the Service (the "Output"). However:</p>
+
+      <ul>
+        <li>You are responsible for ensuring your Output does not infringe third-party rights</li>
+        <li>You warrant that your Input does not violate any third-party rights</li>
+        <li>You are responsible for any third-party content included in your Input (faces, trademarks, etc.)</li>
+      </ul>
+
+      <p><strong>Permitted uses:</strong> You may use the Output for personal, commercial, or other purposes, subject to applicable laws and these terms. You may not:</p>
+
+      <ul>
+        <li>Use Output that infringes third-party rights</li>
+        <li>Use Output to misrepresent historical, factual, or statistical information</li>
+        <li>Use Output in defamatory, obscene, or illegal contexts</li>
+        <li>Represent that the Output was created by a human unless clearly disclosed as AI-generated</li>
+      </ul>
+
+      <div class="note">
+        <strong>AI training:</strong> Your Input and Output may be used to improve our AI models, but will be anonymized and aggregated. By using the Service, you agree to this use of your content to improve the Service.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">5. Credits and Payment</h2>
+
+      <p><strong>Credits system:</strong> The Service operates on a credit-based system. You must purchase credits in advance to use the Service. Credit pricing is displayed at the time of purchase.</p>
+
+      <p><strong>Pricing:</strong> Our current pricing structure includes:</p>
+
+      <ul>
+        <li><strong>Signup bonus:</strong> Initial credits provided to new users</li>
+        <li><strong>Per-job pricing:</strong> Variable pricing based on video complexity, duration, resolution, and model selection</li>
+        <li><strong>Credit usage:</strong> Credits are charged when you submit a job, with estimated charges displayed before submission</li>
+      </ul>
+
+      <p><strong>Current status:</strong> Please note that our payment processing system is currently being implemented. At this time, balances are managed manually by the account administrator.</p>
+
+      <p><strong>Credit validity:</strong> Credits do not expire. Unused credits remain in your account until used.</p>
+
+      <p><strong>No refunds:</strong> Credits are non-refundable once purchased, except as required by law.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">6. Acceptable Use</h2>
+
+      <p>You agree not to use the Service for any unlawful purpose or in any way that could harm the Service. Specifically, you agree not to:</p>
+
+      <ul>
+        <li>Upload content that is illegal, harmful, threatening, abusive, tortious, or invasive of privacy</li>
+        <li>Impersonate any person or entity</li>
+        <li>Forge headers or manipulate identifiers</li>
+        <li>Interfere with or disrupt the Service or servers or networks connected to the Service</li>
+        <li>Violate any applicable laws or regulations</li>
+        <li>Use automated systems to access the Service without our permission</li>
+        <li>Decipher, decompile, reverse engineer, or extract source code from the Service</li>
+        <li>Remove or modify copyright or other proprietary notices</li>
+      </ul>
+
+      <p><strong>Content guidelines:</strong> While we use automated systems to screen content, we cannot review all user content. You are responsible for ensuring your content complies with these guidelines.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">7. Service Availability and Changes</h2>
+
+      <p><strong>Service interruptions:</strong> We strive to provide reliable service, but we do not guarantee uninterrupted, error-free, or virus-free operation. The Service may be interrupted for maintenance, updates, or emergencies.</p>
+
+      <p><strong>Changes to Service:</strong> We may modify, suspend, or discontinue any part of the Service at any time, with or without notice. We are not liable for any loss resulting from such changes.</p>
+
+      <p><strong>New features:</strong> New features, tools, or functions added to the Service are subject to these terms.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">8. Privacy</h2>
+
+      <p>Our Privacy Policy explains how we collect, use, and disclose your personal information. By using the Service, you consent to our data practices as described in the Privacy Policy.</p>
+
+      <p>We collect information necessary to provide the Service, including account information, content you submit, usage data, and technical information about your device.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">9. Termination</h2>
+
+      <p><strong>By you:</strong> You may terminate your account at any time by contacting us or following the account deletion process in your workspace.</p>
+
+      <p><strong>By us:</strong> We may suspend or terminate your account immediately if you violate these terms or if we believe your account poses a security risk.</p>
+
+      <p><strong>Effect of termination:</strong> Upon termination, your right to use the Service will cease. We may retain your data for the periods necessary to comply with legal obligations and resolve disputes.</p>
+
+      <p><strong>Data after termination:</strong> We will retain and use your data as necessary to comply with our legal obligations, resolve disputes, and enforce our agreements.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">10. Disclaimers and Limitation of Liability</h2>
+
+      <p><strong>Disclaimer:</strong> The Service is provided "as is" without warranties of any kind, either express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</p>
+
+      <p><strong>No guarantee of results:</strong> We do not guarantee that the Service will meet your requirements, that content will be accurate or timely, or that defects will be corrected.</p>
+
+      <p><strong>Limitation of liability:</strong> To the maximum extent permitted by law, we shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data, or goodwill.</p>
+
+      <p><strong>Maximum liability:</strong> Our total liability arising out of or related to your use of the Service shall not exceed the amount of credits you have purchased.</p>
+
+      <div class="warning">
+        <strong>AI limitations:</strong> AI-generated content may contain inaccuracies, biases, or inappropriate material. We are not responsible for any damages resulting from your use of AI-generated content, including but not limited to copyright infringement, defamation, or misrepresentation.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">11. Governing Law and Jurisdiction</h2>
+
+      <p>These terms are governed by the laws of the jurisdiction in which 琳嫣 operates, without regard to its conflict of laws principles. Any dispute arising from or related to these terms or the Service shall be subject to the exclusive jurisdiction of the courts in that jurisdiction.</p>
+
+      <p>The United Nations Convention on Contracts for the International Sale of Goods does not apply to these terms.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">12. Miscellaneous</h2>
+
+      <p><strong>Entire agreement:</strong> These terms constitute the entire agreement between you and 琳嫣 regarding the Service and supersede all prior agreements.</p>
+
+      <p><strong>Severability:</strong> If any provision of these terms is held invalid, the remaining provisions shall remain in full force and effect.</p>
+
+      <p><strong>Waiver:</strong> Our failure to enforce any right or provision of these terms shall not constitute a waiver of that right or provision.</p>
+
+      <p><strong>Assignment:</strong> You may not assign these terms without our prior written consent. We may assign these terms in connection with a merger, acquisition, or sale of assets.</p>
+
+      <p><strong>Notices:</strong> We may provide notices to you through the Service, email, or other written communication. Your continued use of the Service after such notices constitutes acceptance.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">13. Contact Us</h2>
+
+      <p><strong>Questions about these Terms?</strong> Contact us:</p>
+
+      <p>Email: legal@linyan.ai</p>
+      <p>Privacy inquiries: privacy@linyan.ai</p>
+      <p>Technical support: support@linyan.ai</p>
+
+      <div class="note">
+        <strong>Data Protection Officer:</strong> For data protection concerns, contact our DPO at dpo@linyan.ai. We are committed to addressing your privacy concerns promptly.
+      </div>
+    </section>
+
+    <div class="footer">
+      <p>&copy; 2026 琳嫣 Platform. All rights reserved.</p>
+      <p style="margin-top:8px;">
+        <a href="/terms">Terms of Service</a> &bull;
+        <a href="/privacy">Privacy Policy</a> &bull;
+        <a href="/security">Security</a>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    // ── Mobile hamburger menu ──
+    var navToggle = document.getElementById("navToggle");
+    var topbar = navToggle ? navToggle.closest(".topbar") : null;
+    if (navToggle && topbar) {
+      navToggle.addEventListener("click", function(){
+        var open = topbar.classList.toggle("nav-open");
+        navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      topbar.querySelectorAll(".topbar-right a").forEach(function(el){
+        el.addEventListener("click", function(){
+          topbar.classList.remove("nav-open");
+          navToggle.setAttribute("aria-expanded", "false");
+        });
+      });
+      window.addEventListener("resize", function(){
+        if (window.innerWidth > 768) {
+          topbar.classList.remove("nav-open");
+          navToggle.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+  </script>
+</body>
+</html>

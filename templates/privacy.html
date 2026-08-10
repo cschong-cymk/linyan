@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — 琳嫣</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400&family=Noto+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void:    #0d0b13;
+      --deep:    #131020;
+      --layer:   #1a1628;
+      --panel:   #201c30;
+      --lift:    #27213a;
+      --line:    rgba(200,170,220,0.12);
+      --line2:   rgba(200,170,220,0.22);
+      --ink:     #f2eef8;
+      --mid:     #c8bce0;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --mauve:   #e879f9;
+      --rose:    #f0abfc;
+      --sakura:  #f9a8c9;
+      --petal:   #fbd0e4;
+      --blush:   #fce7f3;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
+      --r: 10px;
+      --serif: "Noto Serif SC", "Noto Serif", Georgia, serif;
+      --sans:  "Noto Sans", system-ui, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      font-size: 16px; font-weight: 400; line-height: 1.7;
+      color: var(--ink); background: var(--void); min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── topbar ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 48px; height: 64px;
+      background: rgba(19,16,32,0.85); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .logo-block { display: flex; align-items: baseline; gap: 14px; }
+    .logo-zh {
+      font-family: var(--serif); font-weight: 400; font-size: 22px;
+      letter-spacing: 0.2em; color: var(--ink);
+    }
+    .logo-en {
+      font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); font-weight: 300;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 24px; }
+    .topbar-meta {
+      display: flex; align-items: center; gap: 20px;
+      font-size: 12px; color: var(--muted); font-weight: 300;
+    }
+
+    .btn {
+      display:inline-flex; align-items:center; justify-content:center;
+      gap:8px; padding:11px 24px; border-radius:var(--r); border:none;
+      font:300 13px var(--sans); letter-spacing:0.08em;
+      cursor:pointer; transition:all 0.18s; white-space:nowrap;
+    }
+    .btn-ghost {
+      background:transparent; border:1px solid var(--line2); color:var(--muted);
+    }
+    .btn-ghost:hover { background:var(--lift); color:var(--ink); border-color:var(--muted); }
+    .btn-primary {
+      background: linear-gradient(120deg, var(--violet), var(--sakura));
+      color: #fff;
+      box-shadow: 0 0 20px rgba(167,139,250,0.25);
+    }
+    .btn-primary:hover {
+      box-shadow: 0 0 32px rgba(167,139,250,0.4);
+      transform: translateY(-1px);
+    }
+
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      gap: 5px;
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: #f3e7d8;
+      border-radius: 2px;
+      transition: transform 0.25s ease, opacity 0.2s ease;
+    }
+    .topbar.nav-open .hamburger span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .topbar.nav-open .hamburger span:nth-child(2) { opacity: 0; }
+    .topbar.nav-open .hamburger span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+    /* ── content shell ── */
+    .shell {
+      max-width: 880px; margin: 0 auto;
+      padding: 80px 48px 120px;
+    }
+
+    /* ── legal header ── */
+    .legal-header {
+      margin-bottom: 56px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line);
+    }
+    .legal-badge {
+      display:inline-block; font-size:11px; letter-spacing:0.18em; text-transform:uppercase;
+      padding:4px 10px; border-radius:4px;
+      background:rgba(167,139,250,0.12); color:var(--violet); margin-bottom:16px;
+    }
+    .legal-title {
+      font-family:var(--serif); font-size:3rem; font-weight:300; line-height:1.2;
+      color:var(--ink); margin-bottom:12px; letter-spacing:0.02em;
+    }
+    .legal-meta {
+      font-size:13px; color:var(--muted); margin-top:20px;
+    }
+    .legal-meta span { display:inline-block; min-width:110px; color:var(--ghost); }
+    .legal-meta strong { color:var(--ink); }
+
+    /* ── sections ── */
+    .section { margin-bottom: 48px; }
+    .section-title {
+      font-size:1.5rem; font-weight:400; color:var(--ink); margin-bottom:18px;
+      padding-bottom:10px; border-bottom:1px solid var(--line);
+    }
+    .section-subtitle {
+      font-size:13px; color:var(--muted); margin-top:14px; margin-bottom:18px;
+    }
+
+    /* ── body text ── */
+    p { margin-bottom: 16px; }
+    li { margin-bottom: 10px; }
+
+    strong { color: var(--ink); font-weight: 500; }
+    a { color: var(--violet); text-decoration: none; }
+    a:hover { color: var(--lavender); text-decoration: underline; }
+
+    .note {
+      margin-top:20px; padding:16px 20px;
+      background:rgba(249,168,201,0.08); border-left:3px solid var(--sakura);
+      border-radius:0 var(--r) var(--r) 0; font-size:13px; color:rgba(249,168,201,0.9);
+      line-height:1.7;
+    }
+    .warning {
+      margin-top:20px; padding:16px 20px;
+      background:rgba(252,211,77,0.1); border-left:3px solid var(--warn);
+      border-radius:0 var(--r) var(--r) 0; font-size:13px; color:rgba(252,211,77,0.95);
+      line-height:1.7;
+    }
+
+    /* ── list styles ── */
+    ul { padding-left: 24px; }
+    ol { padding-left: 24px; }
+
+    /* ── cookie table ── */
+    .cookie-table { width:100%; border-collapse:collapse; margin-top:16px; font-size:13px; }
+    .cookie-table th { text-align:left; padding:10px 12px; background:rgba(167,139,250,0.08); color:var(--ghost); font-weight:400; border-bottom:1px solid var(--line); }
+    .cookie-table td { padding:10px 12px; border-bottom:1px solid var(--line); color:var(--mid); vertical-align:top; }
+    .cookie-table tr:last-child td { border-bottom:none; }
+    .cookie-table .name strong { color:var(--ink); }
+
+    /* ── footer ── */
+    .footer {
+      text-align:center; padding:48px 0 32px; color:var(--ghost); font-size:12px;
+      border-top:1px solid var(--line);
+    }
+
+    /* ── dark interior overrides ── */
+    .shell { background:#100d1a; border-top:1px solid rgba(200,170,220,0.14); }
+    .shell, .shell * {
+      --layer:   #1a1628;
+      --panel:   #201c30;
+      --lift:    #27213a;
+      --line:    rgba(200,170,220,0.12);
+      --line2:   rgba(200,170,220,0.22);
+      --ink:     #f2eef8;
+      --mid:     #c8bce0;
+      --muted:   #ab9ecb;
+      --ghost:   #8a7cb2;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --sakura:  #f9a8c9;
+      --petal:   #fbd0e4;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
+    }
+    .shell .legal-title { color: #f2eef8; }
+    .shell .legal-badge { background: rgba(167,139,250,0.15); color: #a78bfa; }
+    .shell .section-title { color: #f2eef8; border-color: rgba(200,170,220,0.12); }
+    .shell .section-subtitle, .shell .cookie-table th, .shell .cookie-table td, .shell .legal-meta, .shell .note, .shell .warning { color: #c8bce0; }
+    .shell .cookie-table .name strong { color: #f2eef8; }
+    .shell a { color: #c4b5fd; }
+    .shell a:hover { color: #f9a8c9; }
+    .shell .legal-meta strong { color: #f2eef8; }
+    .shell .btn-ghost { border-color: rgba(200,170,220,0.22); color: #c8bce0; }
+    .shell .btn-ghost:hover { background: rgba(200,170,220,0.08); color: #f2eef8; }
+    .shell .btn-primary { background: linear-gradient(135deg, #a78bfa, #8b6df0) !important; color: #ffffff !important; box-shadow: 0 4px 14px rgba(139,109,240,0.35) !important; }
+    .shell .btn-primary:hover { background: linear-gradient(135deg, #b9a3fb, #9d80f4) !important; transform: translateY(-1px); }
+    .shell .note { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.35); color: #c4b5fd; }
+    .shell .warning { background: rgba(252,211,77,0.12); border-color: rgba(252,211,77,0.35); color: #fcd34d; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 1024px) {
+      .topbar, .shell { padding: 0 32px 72px; }
+    }
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: nowrap; padding: 12px 20px; height: auto; }
+      .topbar-right { gap: 14px; }
+      .shell { padding: 48px 20px 80px; }
+      .legal-title { font-size: 2rem; }
+      .topbar .topbar-right {
+        position: absolute; top: 100%; right: 16px; left: 16px;
+        display: none; flex-direction: column; gap: 16px; padding: 18px 20px;
+        background: #16121f; border: 1px solid var(--line2); border-radius: 12px;
+      }
+      .topbar.nav-open .topbar-right { display: flex; }
+      .topbar .topbar-meta { flex-direction: column; align-items: flex-start; gap: 12px; }
+    }
+    @media (max-width: 480px) {
+      .topbar-meta { display: none; }
+      .shell { padding: 40px 16px 64px; }
+      .legal-title { font-size: 1.75rem; }
+    }
+
+    .hamburger { display: none; }
+    @media (max-width: 768px) {
+      .topbar { flex-wrap: nowrap; }
+      .hamburger { display: flex; }
+      .topbar-right { position: absolute; top: 100%; right: 16px; left: 16px; display: none; }
+      .topbar.nav-open .topbar-right { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ── TOPBAR ── -->
+  <header class="topbar">
+    <div class="logo-block">
+      <a href="/" style="text-decoration:none; display:flex; align-items:baseline; gap:14px;">
+        <span class="logo-zh">琳嫣</span>
+        <span class="logo-en">Story · to · Screen</span>
+      </a>
+    </div>
+    <div class="topbar-right">
+      <a href="/" class="btn btn-ghost">Back to home</a>
+    </div>
+    <button class="hamburger" id="navToggle" aria-label="Menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
+  </header>
+
+  <!-- ── CONTENT ── -->
+  <main class="shell">
+    <div class="legal-header">
+      <span class="legal-badge">Privacy Policy</span>
+      <h1 class="legal-title">Your privacy matters</h1>
+      <div class="legal-meta">
+        <span>Last updated:</span> <strong id="policy-date">August 10, 2026</strong><br>
+        <span>Data controller:</span> <strong>琳嫣 Platform</strong><br>
+        <span>Countries:</span> <strong>Global · Privacy Shield compliant</strong>
+      </div>
+    </div>
+
+    <section class="section">
+      <h2 class="section-title">1. Information we collect</h2>
+      <p class="section-subtitle">We collect data necessary to provide your video generation services securely and reliably.</p>
+
+      <p><strong>Account information:</strong> When you create an account, we collect your name, email address, and a secure password. Your password is hashed using industry-standard algorithms and never stored in plain text.</p>
+
+      <p><strong>Content you create:</strong> When you use 琳嫣 to generate videos, we process and store:</p>
+      <ul>
+        <li>Story text or storyboard files you upload (.md format)</li>
+        <li>Video generation settings (models, aspect ratio, style presets, etc.)</li>
+        <li>Generated video outputs and associated metadata</li>
+        <li>Chat conversations with our AI planning system</li>
+      </ul>
+
+      <p><strong>Usage data:</strong> We automatically collect:</p>
+      <ul>
+        <li>IP address and approximate location (country/city level)</li>
+        <li>Browser type, language, and device information</li>
+        <li>Page views, feature usage, and interaction patterns</li>
+        <li>Performance metrics (generation time, error rates)</li>
+        <li>Cookies and similar tracking technologies (see Section 5)</li>
+      </ul>
+
+      <p><strong>Payment information (when available):</strong> Currently, our billing system is manual. When we implement automated payments, payment details will be processed through PCI-DSS compliant processors, and we will never store full card numbers.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">2. How we use your information</h2>
+
+      <p>We use collected information to:</p>
+      <ul>
+        <li><strong>Provide and improve services:</strong> Generate videos from your stories, maintain your workspace, and deliver generated content</li>
+        <li><strong>Authenticate and secure access:</strong> Verify your identity, manage sessions, and protect against unauthorized access</li>
+        <li><strong>Personalize your experience:</strong> Remember your preferences, recommended models, and usage patterns</li>
+        <li><strong>Operate and improve infrastructure:</strong> Monitor system performance, debug issues, and develop new features</li>
+        <li><strong>Comply with legal obligations:</strong> Respond to legal requests and protect our rights and safety</li>
+        <li><strong>Communication:</strong> Send service announcements, security alerts, and (with consent) product updates</li>
+      </ul>
+
+      <div class="note">
+        <strong>AI processing notice:</strong> Your story content and generated videos may be used to improve our AI models, but will be anonymized and aggregated. You retain full ownership of your generated content.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">3. Data sharing and disclosures</h2>
+
+      <p>We do not sell your personal information. We only share data in the following circumstances:</p>
+
+      <ul>
+        <li><strong>Service providers:</strong> We use third-party processors for hosting, authentication, payment processing, and AI model infrastructure (including ByteDance models via Flowdaptor). These providers are contractually obligated to protect your data and use it only for provided services.</li>
+
+        <li><strong>Legal compliance:</strong> We may disclose information when required by law, court order, or government request. We will challenge overbroad requests and notify you when legally permitted.</li>
+
+        <li><strong>Business transfers:</strong> In case of merger, acquisition, or asset sale, your data may be transferred as part of the transaction. You will be notified via email or website notice.</li>
+
+        <li><strong>Protect rights and safety:</strong> We may share information to prevent harm, fraud, or illegal activity, or to enforce our terms and policies.</li>
+      </ul>
+
+      <div class="warning">
+        <strong>International transfers:</strong> Your data may be processed in countries outside your residence. We use Standard Contractual Clauses and other safeguards to ensure adequate protection. Contact us for details at privacy@linyan.ai.
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">4. Data retention and deletion</h2>
+
+      <p><strong>Retention periods:</strong></p>
+      <ul>
+        <li><strong>Account data:</strong> We retain your account information for as long as your account is active or as required by law</li>
+        <li><strong>Generated content:</strong> Videos and storyboards are retained for 90 days after generation unless you delete them earlier</li>
+        <li><strong>Usage logs:</strong> Aggregated analytics are retained indefinitely; individual usage logs are retained for 12 months</li>
+        <li><strong>Communication records:</strong> Support tickets and messages are retained for 24 months</li>
+      </ul>
+
+      <p><strong>Delete your data:</strong> You can:</p>
+      <ul>
+        <li>Download all your generated content at any time</li>
+        <li>Request account deletion by contacting support@linyan.ai</li>
+        <li>Permanently delete generated content through your workspace settings</li>
+      </ul>
+
+      <p>After account deletion, we will remove your personal information from our active databases within 30 days. Some information may be retained in backup systems for legal compliance and will be securely erased within 180 days.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">5. Cookies and tracking technologies</h2>
+
+      <p>We use cookies and similar technologies to enhance your experience:</p>
+
+      <table class="cookie-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>Name</th>
+            <th>Purpose</th>
+            <th>Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="name"><strong>Essential</strong></td>
+            <td>session_id, auth_token</td>
+            <td>Authenticate you and maintain your session</td>
+            <td>Session / 30 days</td>
+          </tr>
+          <tr>
+            <td class="name"><strong>Performance</strong></td>
+            <td>analytics_id</td>
+            <td>Understand how features are used</td>
+            <td>1 year</td>
+          </tr>
+          <tr>
+            <td class="name"><strong>Preference</strong></td>
+            <td>ui_preferences, theme</td>
+            <td>Remember your settings and preferences</td>
+            <td>1 year</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>You can control cookies through your browser settings. Essential cookies cannot be disabled as they are necessary for our services to function.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">6. Your rights and choices</h2>
+
+      <p><strong>Data subject rights:</strong> Depending on your location, you may have the right to:</p>
+
+      <ul>
+        <li><strong>Access:</strong> Request a copy of your personal data</li>
+        <li><strong>Correction:</strong> Update inaccurate or incomplete information</li>
+        <li><strong>Deletion:</strong> Request removal of your personal data</li>
+        <li><strong>Portability:</strong> Receive your data in a structured, machine-readable format</li>
+        <li><strong>Objection:</strong> Opt out of direct marketing and automated decision-making</li>
+        <li><strong>Consent withdrawal:</strong> Withdraw consent for data processing (may limit service functionality)</li>
+      </ul>
+
+      <p><strong>How to exercise your rights:</strong></p>
+      <ul>
+        <li>Email: privacy@linyan.ai</li>
+        <li>Processing time: We respond within 30 days</li>
+        <li>Verification: We may request verification of your identity</li>
+      </ul>
+
+      <p><strong>Do Not Track:</strong> Our systems do not respond to browser Do-Not-Track signals. We only track with your consent or as necessary for service operation.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">7. Security measures</h2>
+
+      <p>We implement multiple layers of security:</p>
+
+      <ul>
+        <li><strong>Encryption:</strong> All data in transit uses TLS 1.3+ encryption. Data at rest is encrypted using AES-256</li>
+        <li><strong>Access controls:</strong> Role-based access to systems; mandatory MFA for administrative accounts</li>
+        <li><strong>Code security:</strong> Regular security audits, penetration testing, and code reviews</li>
+        <li><strong>Data handling:</strong> Strict confidentiality agreements with all employees and contractors</li>
+        <li><strong>Infrastructure:</strong> Cloud infrastructure with SOC 2 Type II compliance</li>
+      </ul>
+
+      <p><strong>In case of data breach:</strong> We will notify affected users and relevant authorities within 72 hours of discovery, as required by applicable law.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">8. Children's privacy</h2>
+
+      <p>Our services are not directed to children under 13 (or 16 in EU jurisdictions). We do not knowingly collect personal data from children. If we discover such data, we will delete it promptly. Parents may contact us to request deletion of their child's data.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">9. Changes to this policy</h2>
+
+      <p>We may update this Privacy Policy from time to time. We will notify you of significant changes by:</p>
+
+      <ul>
+        <li>Posting the updated policy on this page</li>
+        <li>Displaying a notice in our platform</li>
+        <li>Sending email notification to registered users</li>
+        <li>Updating the "Last updated" date above</li>
+      </ul>
+
+      <p>Your continued use of our services after changes constitutes acceptance of the updated policy. We encourage you to review this policy periodically.</p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">10. Contact us</h2>
+
+      <p><strong>Data Protection Officer:</strong></p>
+      <p>Email: dpo@linyan.ai</p>
+      <p>Postal: The Linyan Platform, Attention: DPO, 100 Technology Drive, Innovation City</p>
+
+      <p><strong>Privacy team:</strong></p>
+      <p>Email: privacy@linyan.ai</p>
+      <p>Response time: Within 24 hours for urgent requests, 72 hours for general inquiries</p>
+
+      <p><strong>Supervisory authority:</strong></p>
+      <p>If you believe we have not addressed your concerns, you have the right to lodge a complaint with your local data protection authority.</p>
+    </section>
+
+    <div class="footer">
+      <p>&copy; 2026 琳嫣 Platform. All rights reserved.</p>
+      <p style="margin-top:8px;">
+        <a href="/terms">Terms of Service</a> &bull;
+        <a href="/privacy">Privacy Policy</a> &bull;
+        <a href="/security">Security</a>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    // ── Mobile hamburger menu ──
+    var navToggle = document.getElementById("navToggle");
+    var topbar = navToggle ? navToggle.closest(".topbar") : null;
+    if (navToggle && topbar) {
+      navToggle.addEventListener("click", function(){
+        var open = topbar.classList.toggle("nav-open");
+        navToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+      topbar.querySelectorAll(".topbar-right a").forEach(function(el){
+        el.addEventListener("click", function(){
+          topbar.classList.remove("nav-open");
+          navToggle.setAttribute("aria-expanded", "false");
+        });
+      });
+      window.addEventListener("resize", function(){
+        if (window.innerWidth > 768) {
+          topbar.classList.remove("nav-open");
+          navToggle.setAttribute("aria-expanded", "false");
+        }
+      });
+    }
+  </script>
+</body>
+</html>
