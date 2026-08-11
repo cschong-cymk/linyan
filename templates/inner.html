@@ -453,6 +453,49 @@
     .quote-amt{font-size:20px;}
     .quote-meta{font-size:11px;color:rgba(240,182,72,0.6);}
     .vu-bar.lit{background:var(--acc-amber);}
+
+    /* ══ REFERENCE IMAGE DROP ZONE ══ */
+    .ref-drop-zone{
+      flex:1;
+      min-height:64px;
+      padding:12px 14px;
+      border:1.5px dashed var(--mol-line);
+      border-radius:4px;
+      background:rgba(232,220,192,0.15);
+      cursor:pointer;
+      transition:all 0.2s;
+      display:flex;align-items:center;justify-content:center;
+      text-align:center;
+    }
+    .ref-drop-zone:hover, .ref-drop-zone.drag-over{
+      border-color:var(--mol-mid);
+      background:rgba(232,220,192,0.35);
+    }
+    .ref-drop-zone.drag-over{
+      border-style:solid;
+    }
+    #ref-drop-text{
+      font:300 13px var(--serif);color:var(--mol-muted);font-style:italic;
+    }
+    .ref-preview{
+      display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;
+    }
+    .ref-thumb{
+      position:relative;width:64px;height:64px;border-radius:3px;overflow:hidden;
+      border:1px solid var(--mol-line);background:var(--mol-page);
+    }
+    .ref-thumb img{width:100%;height:100%;object-fit:cover;}
+    .ref-thumb .ref-remove{
+      position:absolute;top:2px;right:2px;width:16px;height:16px;
+      background:rgba(148,48,32,0.85);color:#f4efe4;border:none;border-radius:2px;
+      font:400 10px var(--sans);line-height:14px;cursor:pointer;display:flex;
+      align-items:center;justify-content:center;padding:0;
+    }
+    .ref-thumb .ref-name{
+      position:absolute;bottom:0;left:0;right:0;padding:2px 4px;
+      background:rgba(30,26,20,0.65);color:#f4efe4;font:300 8px var(--mono);
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    }
   </style>
 </head>
 <body>
@@ -532,6 +575,23 @@
       </div>
 
       <div class="mol-section">
+        <div class="file-upload-wrap">
+          <span class="file-label">Ref char</span>
+          <div id="ref-drop-zone" class="ref-drop-zone" onclick="document.getElementById('ref-images').click()">
+            <input type="file" id="ref-images" accept="image/png,image/jpeg,image/webp" multiple
+              style="display:none;"
+              onchange="handleRefFiles(this.files)">
+            <span id="ref-drop-text">Drop images here or click to browse</span>
+          </div>
+        </div>
+        <div class="story-meta">
+          <span id="ref-count">0 images selected</span>
+          <span>1–6 reference images for character consistency</span>
+        </div>
+        <div id="ref-preview" class="ref-preview"></div>
+      </div>
+
+      <div class="mol-section">
         <div class="mol-divider">
           <span class="mol-divider-label">Output</span>
           <span class="mol-divider-line"></span>
@@ -587,7 +647,21 @@
           </div>
           <div class="footnote">
             <span class="fn-label">Music style</span>
-            <input class="fn-input" id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)">
+            <select class="fn-select" id="music-style" onchange="applyMusicStyle()">
+              <option value="">Auto (planner decides)</option>
+              <option value="cinematic instrumental underscore, gentle, atmospheric">Cinematic underscore</option>
+              <option value="epic orchestral trailer music, heroic, dramatic">Epic orchestral</option>
+              <option value="upbeat electronic pop, bright, driving">Upbeat electronic</option>
+              <option value="lo-fi hip hop, chill, warm, relaxed">Lo-fi chill</option>
+              <option value="ambient piano, sparse, emotional, intimate">Ambient piano</option>
+              <option value="tension drone, dark, suspenseful, minimal">Tension drone</option>
+              <option value="acoustic folk, warm, organic, hopeful">Acoustic folk</option>
+              <option value="retro synthwave, neon, pulsing, 80s">Synthwave</option>
+            </select>
+          </div>
+          <div class="footnote" style="flex-basis:100%;">
+            <span class="fn-label">Music prompt</span>
+            <input class="fn-input" id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)" style="width:100%;">
           </div>
         </div>
       </div>
@@ -1031,6 +1105,7 @@
         document.getElementById('narration-enabled').checked = !!cfg.narration_enabled;
         document.getElementById('music-enabled').checked = !!cfg.music_enabled;
         document.getElementById('music-prompt').value = cfg.music_prompt || '';
+        document.getElementById('music-style').value = '';
 
         setDialValue('planner',     'planner-temperature',   cfg.planner_temperature);
         setDialValue('direction',   'direction-temperature', cfg.direction_temperature);
@@ -1064,6 +1139,78 @@
 
     function showFlash(k,m){var e=document.getElementById('flash');e.className=k;e.textContent=m;window.scrollTo(0,0);}
     function clearFlash(){var e=document.getElementById('flash');e.className='hidden';e.textContent='';}
+
+    function applyMusicStyle(){
+      var sel = document.getElementById('music-style');
+      var prompt = document.getElementById('music-prompt');
+      if(sel.value){
+        prompt.value = sel.value;
+        document.getElementById('music-enabled').checked = true;
+      }
+      refreshQuote();
+    }
+
+    function handleRefFiles(fileList){
+      var input = document.getElementById('ref-images');
+      var existing = Array.from(input.files || []);
+      var incoming = Array.from(fileList || []);
+      var allowed = incoming.filter(function(f){
+        return /image\/(png|jpeg|webp)/i.test(f.type);
+      });
+      if (allowed.length !== incoming.length) {
+        showFlash('warn','Only PNG, JPEG, and WebP images are accepted.');
+      }
+      var combined = existing.concat(allowed).slice(0, 6);
+      var dt = new DataTransfer();
+      combined.forEach(function(f){ dt.items.add(f); });
+      input.files = dt.files;
+      renderRefPreviews();
+      updateRefCount();
+    }
+
+    function removeRefFile(idx){
+      var input = document.getElementById('ref-images');
+      var files = Array.from(input.files || []);
+      files.splice(idx, 1);
+      var dt = new DataTransfer();
+      files.forEach(function(f){ dt.items.add(f); });
+      input.files = dt.files;
+      renderRefPreviews();
+      updateRefCount();
+    }
+
+    function renderRefPreviews(){
+      var wrap = document.getElementById('ref-preview');
+      var files = Array.from(document.getElementById('ref-images').files || []);
+      wrap.innerHTML = '';
+      files.forEach(function(f, i){
+        var thumb = document.createElement('div');
+        thumb.className = 'ref-thumb';
+        var img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.onload = function(){ URL.revokeObjectURL(img.src); };
+        var btn = document.createElement('button');
+        btn.className = 'ref-remove';
+        btn.type = 'button';
+        btn.textContent = '×';
+        btn.title = 'Remove';
+        btn.onclick = function(e){ e.stopPropagation(); removeRefFile(i); };
+        var name = document.createElement('div');
+        name.className = 'ref-name';
+        name.textContent = f.name;
+        thumb.appendChild(img);
+        thumb.appendChild(btn);
+        thumb.appendChild(name);
+        wrap.appendChild(thumb);
+      });
+    }
+
+    function updateRefCount(){
+      var files = document.getElementById('ref-images').files;
+      var label = files.length === 0 ? '0 images selected' : files.length === 1 ? '1 image selected' : files.length + ' images selected';
+      document.getElementById('ref-count').textContent = label;
+      document.getElementById('ref-drop-text').textContent = files.length ? 'Add more images or click to browse' : 'Drop images here or click to browse';
+    }
 
     async function refreshQuote(){
       if(!state.session)return;
@@ -1163,6 +1310,10 @@
           fd.append('file', new Blob([document.getElementById('story-text').value],{type:'text/markdown'}),'story.md');
         } else {
           fd.append('file', document.getElementById('storyboard-file').files[0]);
+        }
+        var refFiles = document.getElementById('ref-images').files;
+        for (var i = 0; i < refFiles.length; i++) {
+          fd.append('ref_images', refFiles[i]);
         }
         fd.append('config', JSON.stringify(getJobConfig()));
 
@@ -1281,6 +1432,25 @@
         enterDemo();
       }
     }
+    // Wire up reference-image drag-and-drop on the drop zone.
+    (function(){
+      var zone = document.getElementById('ref-drop-zone');
+      if (!zone) return;
+      ['dragenter','dragover','dragleave','drop'].forEach(function(evt){
+        zone.addEventListener(evt, function(e){
+          e.preventDefault();
+          e.stopPropagation();
+        }, false);
+      });
+      ['dragenter','dragover'].forEach(function(evt){
+        zone.addEventListener(evt, function(){ zone.classList.add('drag-over'); }, false);
+      });
+      ['dragleave','drop'].forEach(function(evt){
+        zone.addEventListener(evt, function(){ zone.classList.remove('drag-over'); }, false);
+      });
+      zone.addEventListener('drop', function(e){ handleRefFiles(e.dataTransfer.files); }, false);
+    })();
+
     boot();
   </script>
 </body>

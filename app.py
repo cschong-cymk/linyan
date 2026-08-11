@@ -189,7 +189,7 @@ DRAW_TEXT_FONTS = [
 
 app = Flask(__name__, template_folder=str(TEMPLATE_DIR))
 app.secret_key = APP_SECRET
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
 @app.after_request
@@ -208,6 +208,21 @@ def add_no_cache_headers(resp):
         resp.headers["Expires"] = "0"
     return resp
 
+
+@app.route("/templates/<path:filename>", strict_slashes=False)
+def templates(filename):
+    """Serve verification and template files from templates/."""
+    return send_from_directory(APP_ROOT / "templates", filename)
+
+@app.route("/templates/v/", strict_slashes=False)
+def templates_v_root():
+    """Root path for TikTok site verification."""
+    return "tiktok-developers-site-verification=EIutFYzD0vuGRYAaxO5ILGss5ez7me5w", 200
+
+@app.route("/templates/v/<path:filename>", strict_slashes=False)
+def templates_v(filename):
+    """Serve TikTok verification files under /templates/v/."""
+    return send_from_directory(APP_ROOT / "templates" / "v", filename)
 
 @app.route("/assets/<path:filename>")
 def assets(filename):
@@ -904,6 +919,12 @@ def populate_character_reference_images(job_id, character_bible, config):
     money on jobs that then fail the balance check anyway, which is strictly
     worse than just failing the balance check first.
     """
+    uploaded_refs = config.get("character_reference_images", [])
+    if uploaded_refs:
+        for name, entry in character_bible.items():
+            entry["reference_image_url"] = uploaded_refs[0]
+        return character_bible
+
     for name, entry in character_bible.items():
         entry["reference_image_url"] = generate_character_reference_image(
             job_id, name, entry["description"], config
@@ -1466,6 +1487,15 @@ def call_video_model(shot, config, clip_path, character_bible):
             content.append({"type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
+    # Attach any user-uploaded character reference images globally (up to the
+    # model's 9-image cap). These supplement character-specific refs.
+    for ref_url in config.get("character_reference_images", []):
+        if len(attached_urls) >= 9:
+            break
+        if ref_url and ref_url not in attached_urls:
+            content.append({"type": "image_url", "image_url": {"url": ref_url}})
+            attached_urls.add(ref_url)
+
     video_bytes, reason = submit_and_poll_video_task(content, config, duration)
     if video_bytes is None and attached_urls and _is_image_url_400(reason):
         # A reference image couldn't be fetched by ModelArk — drop the images
@@ -1699,7 +1729,7 @@ def mix_music_into_video(video_path, music_path):
         return False, f"ffmpeg mix failed: {exc}"
 
 
-def create_job_record(user_id, original_filename, config, storyboard_text):
+def create_job_record(user_id, original_filename, config, storyboard_text, ref_images=None):
     settings = load_settings()
     # Pre-planning gate: character count isn't known yet (that's an LLM step
     # that hasn't run), so this uses settings["quote_character_assumption"].
@@ -1718,6 +1748,23 @@ def create_job_record(user_id, original_filename, config, storyboard_text):
     safe_name = secure_filename(Path(original_filename).stem) or "storyboard"
     storyboard_path = UPLOAD_DIR / f"{job_id}-{safe_name}.md"
     storyboard_path.write_text(storyboard_text, encoding="utf-8")
+
+    # Persist uploaded character reference images and expose them publicly.
+    ref_urls = []
+    if ref_images:
+        for idx, ref_file in enumerate(ref_images[:6]):
+            if not ref_file or not ref_file.filename:
+                continue
+            ext = (Path(ref_file.filename).suffix or ".png").lower()
+            if ext not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                ext = ".png"
+            safe_ref = secure_filename(ref_file.filename) or f"ref-{idx}"
+            ref_name = f"{job_id}-ref-{idx}-{safe_ref}{ext}"
+            ref_path = CHARACTER_DIR / ref_name
+            ref_file.save(ref_path)
+            ref_urls.append(f"{PUBLIC_BASE_URL}/character-refs/{ref_path.name}")
+    if ref_urls:
+        config["character_reference_images"] = ref_urls
 
     timestamp = now_iso()
     db_execute(
@@ -1833,6 +1880,99 @@ def session_status():
             },
         }
     )
+
+
+
+import urllib.parse
+import urllib.request
+import json
+import secrets
+
+TIKTOK_CLIENT_KEY = os.environ.get("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
+TIKTOK_REDIRECT_URI = f"{PUBLIC_BASE_URL}/auth/tiktok/callback" if PUBLIC_BASE_URL else "https://linyan.io/auth/tiktok/callback"
+
+@app.route("/auth/tiktok")
+def tiktok_login():
+    state = secrets.token_urlsafe(16)
+    session['oauth_state'] = state
+    params = {
+        'client_key': TIKTOK_CLIENT_KEY,
+        'response_type': 'code',
+        'scope': 'user.info.basic',
+        'redirect_uri': TIKTOK_REDIRECT_URI,
+        'state': state
+    }
+    url = f"https://www.tiktok.com/v2/auth/authorize/?{urllib.parse.urlencode(params)}"
+    return redirect(url)
+
+@app.route("/auth/tiktok/callback")
+def tiktok_callback():
+    code = request.args.get('code')
+    state = request.args.get('state')
+    error = request.args.get('error')
+    
+    if error:
+        return f"Auth Error: {error}", 400
+    if not code or state != session.get('oauth_state'):
+        return "Invalid state or missing code", 400
+        
+    token_url = "https://open.tiktokapis.com/v2/oauth/token/"
+    data = urllib.parse.urlencode({
+        'client_key': TIKTOK_CLIENT_KEY,
+        'client_secret': TIKTOK_CLIENT_SECRET,
+        'code': code,
+        'grant_type': 'authorization_code',
+        'redirect_uri': TIKTOK_REDIRECT_URI
+    }).encode('utf-8')
+    
+    req = urllib.request.Request(token_url, data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+    try:
+        with urllib.request.urlopen(req) as response:
+            token_data = json.loads(response.read().decode())
+    except Exception as e:
+        return f"Failed to obtain token: {str(e)}", 500
+        
+    access_token = token_data.get('access_token')
+    if not access_token:
+        return "No access token in response", 500
+        
+    # Get user info
+    user_url = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name"
+    req_user = urllib.request.Request(user_url, headers={'Authorization': f'Bearer {access_token}'})
+    try:
+        with urllib.request.urlopen(req_user) as response:
+            user_info = json.loads(response.read().decode()).get('data', {}).get('user', {})
+    except Exception as e:
+        return f"Failed to fetch user info: {str(e)}", 500
+        
+    open_id = user_info.get('open_id')
+    display_name = user_info.get('display_name', 'TikTok User')
+    if not open_id:
+        return "Failed to get TikTok open_id", 500
+        
+    email = f"{open_id}@tiktok.linyan.io"  # Placeholder email
+    
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+    user = cur.fetchone()
+    
+    if user:
+        user_id = user['id']
+    else:
+        # Create new user
+        import werkzeug.security
+        dummy_hash = werkzeug.security.generate_password_hash(secrets.token_urlsafe(16))
+        cur.execute(
+            "INSERT INTO users (email, password_hash, display_name, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
+            (email, dummy_hash, display_name, now_iso())
+        )
+        user_id = cur.fetchone()['id']
+        db.commit()
+        
+    session["user_id"] = user_id
+    return redirect("/studio")
 
 
 @app.route("/api/auth/signup", methods=["POST"])
@@ -2301,11 +2441,13 @@ def create_job():
         storyboard_text = storyboard_file.read().decode("utf-8")
     except UnicodeDecodeError:
         return jsonify({"error": "Storyboard must be UTF-8 markdown."}), 400
+    ref_images = request.files.getlist("ref_images") or []
     job, error_payload = create_job_record(
         g.current_user["id"],
         storyboard_file.filename,
         config,
         storyboard_text,
+        ref_images=ref_images,
     )
     if error_payload:
         return jsonify(error_payload), 402
