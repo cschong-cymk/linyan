@@ -116,35 +116,28 @@ REFERENCE_CLIP_DURATION = 4   # Seedance's minimum valid duration — cheapest s
 MODEL_CATALOG = {
     "planner_models": [
         {
+            "id": "dola-seed-2-1-turbo-260628",
+            "label": "Seed 2.1 Turbo",
+            "family": "ark",
+            "recommended": True,
+            "summary": "Latest Seed 2.1 Turbo planner. (Pricing: Input 0.5, Output 2.5)",
+        },
+        {
             "id": "seed-2-0-lite-260228",
             "label": "Seed 2.0 Lite",
             "family": "ark",
-            "recommended": True,
+            "recommended": False,
             "summary": "Fast story breakdown and shot planning.",
         },
-        {
-            "id": "seed-1-8-251228",
-            "label": "Seed 1.8",
-            "family": "ark",
-            "recommended": False,
-            "summary": "Deep reasoning mode; best for complex multi-scene storyboards.",
-        },
-{
-    "id": "glm-4-7-251222",
-    "label": "GLM-4.7",
-    "family": "ark",
-    "recommended": False,
-    "summary": "Long-context scene planning.",
-    "cost_factor": 1.1,
-},
     ],
     "video_models": [
         {
-            "id": "dreamina-seedance-2-0-260128",
-            "label": "Seedance 2.0 Standard",
+            "id": "dreamina-seedance-2-5-260628",
+            "label": "Seedance 2.5",
             "provider": "ark",
-            "cost_factor": 1.0,
-            "summary": "1080p. Balanced quality and speed for commercial use.",
+            "recommended": True,
+            "cost_factor": 1.2,
+            "summary": "Latest Seedance 2.5 generation. (Pricing: $0.68/s for 1080p)",
         },
         {
             "id": "dreamina-seedance-2-0-fast-260128",
@@ -164,11 +157,11 @@ MODEL_CATALOG = {
 
 DEFAULT_SETTINGS = {
     "allow_signup": True,
-    "margin_multiplier": 1.5,
+    "margin_multiplier": 1.1,
     "signup_bonus_credits": 120.0,
     "credit_label": "Linyan credits",
     "default_planner_model": "seed-2-0-lite-260228",
-    "default_video_model": "dreamina-seedance-2-0-260128",
+    "default_video_model": "dreamina-seedance-2-5-260628",
     # Used only when the real character count isn't known yet (pre-planning
     # quotes and the upfront balance check) — see estimate_job_cost. This is a
     # guess, admin-tunable, not a measurement.
@@ -545,12 +538,12 @@ def normalize_config(raw_config, settings):
     return config
 
 
-def estimate_job_cost(config, settings, character_count=None):
+def estimate_job_cost(config, settings, character_count=None, planner_usage=None):
     """
     Estimate job cost in Linyan credits based on real Seedance 2.0 published rates.
 
     Published USD rates (per second of generated video):
-      dreamina-seedance-2-0-260128       (Standard, 1080p): $0.05–$0.10  → midpoint $0.075/s
+      dreamina-seedance-2-5-260628       (Standard, 1080p): $0.05–$0.10  → midpoint $0.075/s
       dreamina-seedance-2-0-fast-260128  (Fast,     720p):  $0.01–$0.02  → midpoint $0.015/s
 
     1 Linyan credit = $0.01 USD. Margin multiplier applied on top (default 1.5 = 50% margin).
@@ -577,7 +570,7 @@ def estimate_job_cost(config, settings, character_count=None):
         not the pre-planning guess — on success.
     """
     SEEDANCE_USD_PER_SECOND = {
-        "dreamina-seedance-2-0-260128":      0.075,
+        "dreamina-seedance-2-5-260628":      0.095,  # 0.68 RMB converted to USD
         "dreamina-seedance-2-0-fast-260128": 0.015,
     }
     CREDITS_PER_USD = 100.0  # 1 credit = $0.01
@@ -593,7 +586,22 @@ def estimate_job_cost(config, settings, character_count=None):
     video_seconds = config["target_duration"]
     reference_seconds = character_count * REFERENCE_CLIP_DURATION
 
-    raw_usd = usd_per_second * (video_seconds + reference_seconds)
+    planner_usd = 0.0
+    pm = config.get("planner_model", "")
+    if planner_usage:
+        pt = planner_usage.get("prompt_tokens", 0)
+        ct = planner_usage.get("completion_tokens", 0)
+    else:
+        # Assumed typical token counts for the pre-charge quote
+        pt = 1000
+        ct = 600
+
+    if pm == "dola-seed-2-1-turbo-260628":
+        planner_usd = (pt / 1000.0) * 0.070 + (ct / 1000.0) * 0.350
+    else:
+        planner_usd = (pt / 1000.0) * 0.030 + (ct / 1000.0) * 0.080
+        
+    raw_usd = usd_per_second * (video_seconds + reference_seconds) + planner_usd
     charged_usd = raw_usd * margin
     credits = charged_usd * CREDITS_PER_USD
 
@@ -1121,6 +1129,7 @@ def call_planner(storyboard_text, config):
             data = json.loads(resp.read().decode("utf-8"))
         raw_json = data["choices"][0]["message"]["content"].strip()
         parsed = json.loads(raw_json)
+        usage = data.get("usage", {})
 
         character_bible = {}
         for c in parsed.get("characters", []):
@@ -1177,6 +1186,7 @@ def call_planner(storyboard_text, config):
             "characters": character_bible,
             "shots": clean_shots,
             "music_prompt": str(parsed.get("music_prompt", "")).strip()[:450],
+            "usage": usage,
             "plan_text": json.dumps(
                 {
                     "characters": character_bible,
@@ -1330,7 +1340,7 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         # extracted, zero reference renders incurred) — recomputing here isn't
         # one-directional, it's just accurate.
         character_count = len(planner.get("characters", {}))
-        estimated_credits, _provider = estimate_job_cost(config, settings, character_count=character_count)
+        estimated_credits, _provider = estimate_job_cost(config, settings, character_count=character_count, planner_usage=planner.get("usage"))
 
         cur = db.cursor()
         cur.execute("SELECT credit_balance FROM users WHERE id = %s", (user_id,))
@@ -2662,7 +2672,7 @@ def admin_settings():
     if "margin_multiplier" in payload:
         save_setting(
             "margin_multiplier",
-            clamp_float(payload.get("margin_multiplier"), 1.5, 0.5, 5.0),
+            clamp_float(payload.get("margin_multiplier"), 1.1, 0.5, 5.0),
         )
     if "signup_bonus_credits" in payload:
         save_setting(
