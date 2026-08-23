@@ -1702,20 +1702,93 @@
     }
 
 
-// Mock Timeline JS
+// Real Timeline JS with AI Singapore Integration
 document.addEventListener("DOMContentLoaded", () => {
   const genBtn = document.getElementById("timeline-gen-btn");
   const emptyState = document.getElementById("timeline-empty-state");
   const trackItems = document.getElementById("timeline-track-items");
-
+  
   if (genBtn) {
     genBtn.addEventListener("click", () => {
+      const storyText = document.getElementById("story-text").value.trim();
+      if (!storyText) {
+        alert("Please write your story first.");
+        return;
+      }
+      
       genBtn.textContent = "Generating...";
-      setTimeout(() => {
-        emptyState.style.display = "none";
-        trackItems.style.display = "flex";
-        genBtn.textContent = "Regenerate Draft";
-      }, 800);
+      emptyState.style.display = "block";
+      emptyState.textContent = "AI Singapore is drafting the storyboard...";
+      trackItems.style.display = "none";
+      
+      const prompt = `You are a professional storyboard director. Break the following story into exactly 3-5 distinct scenes for a video.
+Output ONLY a raw JSON array of objects. Do not include markdown formatting or backticks.
+Each object must have "scene_number" (int), "visual" (string describing the shot), and "action" (short phrase like "Wide shot" or "Close-up").
+
+Story: ${storyText}
+`;
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/aiSingapore/stream", true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      
+      let fullResponse = "";
+      
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 3 || xhr.readyState === 4) {
+          const lines = xhr.responseText.split("\n");
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.startsWith("data: ")) {
+              const dataStr = line.substring(6);
+              if (dataStr === "[DONE]") continue;
+              try {
+                const data = JSON.parse(dataStr);
+                if (data && data.type === "answer" && data.response) {
+                  fullResponse = data.response;
+                }
+              } catch (e) {}
+            }
+          }
+          if (xhr.readyState === 4) {
+             try {
+               let cleanJson = fullResponse.trim();
+               if (cleanJson.startsWith("```json")) {
+                 cleanJson = cleanJson.replace(/```json/g, "").replace(/```/g, "").trim();
+               } else if (cleanJson.startsWith("```")) {
+                 cleanJson = cleanJson.replace(/```/g, "").trim();
+               }
+               
+               const frames = JSON.parse(cleanJson);
+               trackItems.innerHTML = "";
+               frames.forEach((frame, idx) => {
+                 const fDiv = document.createElement("div");
+                 fDiv.className = "timeline-frame";
+                 if (idx === 0) fDiv.classList.add("active");
+                 fDiv.innerHTML = `
+                  <div class="frame-number">${frame.scene_number || (idx + 1)}</div>
+                  <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">
+                    <strong>${frame.action}</strong>: ${frame.visual}
+                  </div>
+                  <div class="frame-action">Preview</div>
+                 `;
+                 trackItems.appendChild(fDiv);
+               });
+               emptyState.style.display = "none";
+               trackItems.style.display = "flex";
+               genBtn.textContent = "Regenerate Draft";
+             } catch (err) {
+               console.error("Failed to parse JSON", err, fullResponse);
+               emptyState.textContent = "Error parsing response. Please try again.";
+               genBtn.textContent = "Generate Draft";
+             }
+          }
+        }
+      };
+      
+      xhr.send(JSON.stringify({
+        messages: [{ role: "user", content: prompt }]
+      }));
     });
   }
 });
