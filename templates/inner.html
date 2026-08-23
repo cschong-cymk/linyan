@@ -820,8 +820,6 @@
         <div style="font:300 9px var(--mono);color:var(--mol-ghost);letter-spacing:0.08em;">Flowdaptor · ByteDance models</div>
       </div>
 
-    </div>
-
     
       <!-- Interactive Timeline (Mock) -->
       <div class="timeline-container" id="storyboard-timeline">
@@ -856,6 +854,9 @@
         </div>
       </div>
       <!-- End Timeline -->
+
+
+    </div>
 
     <!-- RIGHT: ACCUPHASE -->
     <div class="amplifier">
@@ -1380,7 +1381,7 @@
       try{
         var q=await jsonFetch('/api/quote',{method:'POST',body:JSON.stringify(getJobConfig())});
         document.getElementById('quote-value').textContent=q.estimated_credits.toFixed(1)+' cr';
-        document.getElementById('quote-meta').textContent=q.provider;
+        document.getElementById('quote-meta').textContent='';
       }catch(e){}
     }
 
