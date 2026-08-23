@@ -43,6 +43,115 @@
     html{scroll-behavior:smooth;}
     body{font-family:var(--sans);font-size:15.5px;font-weight:400;line-height:1.7;background:var(--acc-dark);min-height:100vh;overflow-x:hidden;}
 
+    
+    /* ── cinematic timeline ui (inner) ── */
+    .timeline-container {
+      margin-top: 24px;
+      background: var(--acc-body);
+      border: 1px solid var(--acc-line);
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .timeline-header {
+      padding: 10px 16px;
+      background: var(--acc-dark);
+      border-bottom: 1px solid var(--acc-line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font: 400 13px var(--mono);
+      color: var(--acc-fascia);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .timeline-track-wrap {
+      padding: 16px;
+      overflow-x: auto;
+      background: rgba(0,0,0,0.2);
+      min-height: 140px;
+      display: flex;
+      align-items: center;
+    }
+    .timeline-track {
+      display: flex;
+      gap: 12px;
+    }
+    .timeline-frame {
+      width: 160px;
+      height: 90px;
+      background: var(--acc-dark);
+      border: 1px solid var(--acc-line);
+      border-radius: 3px;
+      position: relative;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .timeline-frame:hover {
+      border-color: var(--acc-amber);
+    }
+    .timeline-frame.active {
+      border-color: var(--ok);
+    }
+    .timeline-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.6;
+    }
+    .timeline-frame .frame-number {
+      position: absolute;
+      top: 4px;
+      left: 6px;
+      font: 700 10px var(--mono);
+      background: rgba(0,0,0,0.8);
+      padding: 2px 5px;
+      border-radius: 2px;
+      color: var(--acc-amber);
+    }
+    .timeline-frame .frame-action {
+      position: absolute;
+      bottom: 4px;
+      right: 6px;
+      font: 400 10px var(--sans);
+      background: var(--acc-amber);
+      color: #000;
+      padding: 2px 6px;
+      border-radius: 2px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .timeline-frame:hover .frame-action {
+      opacity: 1;
+    }
+    .timeline-empty {
+      color: var(--mol-ghost);
+      font: 300 13px var(--serif);
+      width: 100%;
+      text-align: center;
+      font-style: italic;
+    }
+    .btn-timeline {
+      background: transparent;
+      border: 1px solid var(--acc-amber);
+      color: var(--acc-amber);
+      padding: 4px 10px;
+      font: 400 10px var(--mono);
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.2s;
+    }
+    .btn-timeline:hover {
+      background: var(--acc-amber);
+      color: #000;
+    }
+
     /* ══ TOPBAR — wooden Accuphase fascia ══ */
     .topbar{
       height:56px;
@@ -550,6 +659,7 @@
         <div class="file-upload-wrap">
           <span class="file-label">Input</span>
           <div class="mode-toggle">
+            <button class="mode-btn" type="button" onclick="setInputMode('valenpyno')" style="color:#f9a8c9;">✨ Valenpyno</button>
             <button class="mode-btn active" type="button" onclick="setInputMode('text')">Write</button>
             <button class="mode-btn" type="button" onclick="setInputMode('file')">Upload .md</button>
           </div>
@@ -572,6 +682,23 @@
             style="font:300 13px var(--serif);color:var(--mol-muted);background:transparent;border:none;outline:none;width:100%;padding:8px 0;">
           <div style="font:300 10px var(--mono);color:var(--mol-ghost);letter-spacing:0.08em;margin-top:4px;">Pre-planned storyboard — skips AI planning</div>
         </div>
+
+        <div id="input-valenpyno-wrap" style="display:none;">
+          <div style="background:var(--mol-elevated); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:16px;">
+            <div id="valenpyno-chat" style="max-height:220px; overflow-y:auto; margin-bottom:12px; font:300 14px var(--serif); color:var(--mol-ink); line-height:1.6; display:flex; flex-direction:column; gap:12px;">
+              <div style="opacity:0.8;"><strong>Valenpyno:</strong> What's your vision? I can help you draft a highly detailed, professional prompt for the video generation models.</div>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="valenpyno-input" style="flex:1; background:var(--mol-bg); border:1px solid rgba(255,255,255,0.1); color:var(--white); border-radius:6px; padding:10px 12px; font-family:var(--sans); font-size:13px; outline:none;" placeholder="Describe your video idea..." onkeydown="if(event.key==='Enter') sendValenpyno()">
+              <button type="button" id="valenpyno-send-btn" onclick="sendValenpyno()" style="background:var(--sakura); border:none; color:#111; padding:0 16px; border-radius:6px; font-weight:500; cursor:pointer;">Send</button>
+            </div>
+            <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
+              <span id="valenpyno-status" style="font-size:11px; color:var(--mol-muted); font-family:var(--sans);"></span>
+              <button type="button" onclick="applyValenpyno()" style="background:transparent; border:1px solid rgba(249,168,201,0.5); color:#f9a8c9; padding:6px 14px; border-radius:6px; font-size:12px; cursor:pointer; font-family:var(--sans); transition:all 0.2s;">Apply to Studio Fields →</button>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <div class="mol-section">
@@ -694,6 +821,41 @@
       </div>
 
     </div>
+
+    
+      <!-- Interactive Timeline (Mock) -->
+      <div class="timeline-container" id="storyboard-timeline">
+        <div class="timeline-header">
+          <span>Storyboard Timeline</span>
+          <div style="display:flex; gap: 8px;">
+            <button type="button" class="btn-timeline" id="timeline-gen-btn">Generate Draft</button>
+          </div>
+        </div>
+        <div class="timeline-track-wrap">
+          <div class="timeline-empty" id="timeline-empty-state">
+            Write your story and click "Generate Draft" to build the timeline...
+          </div>
+          <div class="timeline-track" id="timeline-track-items" style="display:none;">
+            <!-- Example Frames -->
+            <div class="timeline-frame active">
+              <div class="frame-number">1</div>
+              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Wide shot: A bustling cyber city.</div>
+              <div class="frame-action">Preview</div>
+            </div>
+            <div class="timeline-frame">
+              <div class="frame-number">2</div>
+              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Close-up: Neon lights reflecting in a puddle.</div>
+              <div class="frame-action">Preview</div>
+            </div>
+            <div class="timeline-frame">
+              <div class="frame-number">3</div>
+              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Medium: A figure walking in the rain.</div>
+              <div class="frame-action">Preview</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- End Timeline -->
 
     <!-- RIGHT: ACCUPHASE -->
     <div class="amplifier">
@@ -902,8 +1064,9 @@
       state.inputMode = m;
       document.getElementById('input-text-wrap').style.display = m==='text' ? '' : 'none';
       document.getElementById('input-file-wrap').style.display = m==='file' ? '' : 'none';
+      document.getElementById('input-valenpyno-wrap').style.display = m==='valenpyno' ? '' : 'none';
       document.querySelectorAll('.mode-btn').forEach(function(b,i){
-        b.classList.toggle('active',(i===0&&m==='text')||(i===1&&m==='file'));
+        b.classList.toggle('active',(i===1&&m==='text')||(i===2&&m==='file')||(i===0&&m==='valenpyno'));
       });
     }
 
@@ -1451,6 +1614,111 @@
     })();
 
     boot();
-  </script>
+  
+    var valenpynoCurrentDraft = "";
+
+    function sendValenpyno() {
+      var inputEl = document.getElementById('valenpyno-input');
+      var text = inputEl.value.trim();
+      if (!text) return;
+      
+      var chatEl = document.getElementById('valenpyno-chat');
+      var userBubble = document.createElement('div');
+      userBubble.style = "opacity:0.9; text-align:right;";
+      userBubble.innerHTML = "<strong>You:</strong> " + text;
+      chatEl.appendChild(userBubble);
+      
+      inputEl.value = "";
+      document.getElementById('valenpyno-status').innerText = "Valenpyno is thinking...";
+      document.getElementById('valenpyno-send-btn').disabled = true;
+      
+      var botBubble = document.createElement('div');
+      botBubble.style = "opacity:0.9; color: var(--sakura);";
+      botBubble.innerHTML = "<strong>Valenpyno:</strong> <span></span>";
+      var span = botBubble.querySelector('span');
+      chatEl.appendChild(botBubble);
+      chatEl.scrollTop = chatEl.scrollHeight;
+
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/aiSingapore/stream', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      
+      var textOutput = "";
+      
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 3 || xhr.readyState === 4) {
+          var responseText = xhr.responseText;
+          
+          var lines = responseText.split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            if (line.indexOf('data: ') === 0) {
+              var dataStr = line.substring(6);
+              if (dataStr === '[DONE]') continue;
+              
+              try {
+                var data = JSON.parse(dataStr);
+                if (data && data.type === 'status') {
+                  document.getElementById('valenpyno-status').innerText = data.message || "Generating...";
+                } else if (data && data.type === 'answer') {
+                  textOutput = data.response;
+                  span.innerText = textOutput;
+                  valenpynoCurrentDraft = textOutput;
+                  chatEl.scrollTop = chatEl.scrollHeight;
+                } else if (data && data.type === 'done') {
+                  document.getElementById('valenpyno-status').innerText = "Ready.";
+                } else if (data && data.type === 'error') {
+                  span.innerText = "Error: " + data.message;
+                  document.getElementById('valenpyno-status').innerText = "Failed.";
+                }
+              } catch(e) {
+                // Ignore partial JSON parsing errors; they will resolve in the next chunk.
+              }
+            }
+          }
+          
+          if (xhr.readyState === 4) {
+            document.getElementById('valenpyno-send-btn').disabled = false;
+            if (xhr.status !== 200) {
+               span.innerText = "Error reaching Valenpyno.";
+               document.getElementById('valenpyno-status').innerText = "Error.";
+            }
+          }
+        }
+      };
+      
+      xhr.send(JSON.stringify({
+        input: { input: text },
+        config: {}
+      }));
+    }
+
+    function applyValenpyno() {
+      var textarea = document.getElementById('story-text');
+      textarea.value = valenpynoCurrentDraft || document.getElementById('valenpyno-chat').lastElementChild.innerText.replace('Valenpyno: ', '');
+      setInputMode('text');
+      updateWordCount();
+    }
+
+
+// Mock Timeline JS
+document.addEventListener("DOMContentLoaded", () => {
+  const genBtn = document.getElementById("timeline-gen-btn");
+  const emptyState = document.getElementById("timeline-empty-state");
+  const trackItems = document.getElementById("timeline-track-items");
+
+  if (genBtn) {
+    genBtn.addEventListener("click", () => {
+      genBtn.textContent = "Generating...";
+      setTimeout(() => {
+        emptyState.style.display = "none";
+        trackItems.style.display = "flex";
+        genBtn.textContent = "Regenerate Draft";
+      }, 800);
+    });
+  }
+});
+
+</script>
 </body>
 </html>
