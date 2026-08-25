@@ -122,13 +122,6 @@ MODEL_CATALOG = {
             "recommended": True,
             "summary": "Latest Seed 2.1 Turbo planner. (Pricing: Input 0.5, Output 2.5)",
         },
-        {
-            "id": "seed-2-0-lite-260228",
-            "label": "Seed 2.0 Lite",
-            "family": "ark",
-            "recommended": False,
-            "summary": "Fast story breakdown and shot planning.",
-        },
     ],
     "video_models": [
         {
@@ -160,7 +153,7 @@ DEFAULT_SETTINGS = {
     "margin_multiplier": 1.1,
     "signup_bonus_credits": 120.0,
     "credit_label": "Linyan credits",
-    "default_planner_model": "seed-2-0-lite-260228",
+    "default_planner_model": "dola-seed-2-1-turbo-260628",
     "default_video_model": "dreamina-seedance-2-5-260628",
     # Used only when the real character count isn't known yet (pre-planning
     # quotes and the upfront balance check) — see estimate_job_cost. This is a
@@ -1125,7 +1118,7 @@ def call_planner(storyboard_text, config):
         method="POST",
     )
     try:
-        with urllib_request.urlopen(req, timeout=60) as resp:
+        with urllib_request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         raw_json = data["choices"][0]["message"]["content"].strip()
         parsed = json.loads(raw_json)
@@ -2413,6 +2406,58 @@ def quote_job():
             ),
         }
     )
+
+
+
+@app.route("/api/timeline/generate", methods=["POST"])
+def timeline_generate():
+    payload = request.json
+    story_text = payload.get("storyText", "")
+    if not story_text:
+        return jsonify({"error": "No story text provided."}), 400
+
+    model_id = "dola-seed-2-1-turbo-260628" # Seed 2.1 Turbo
+
+    system_prompt = "You are a professional storyboard director."
+    user_prompt = f"""Break the following story into exactly 3-5 distinct scenes for a video.
+Output ONLY a JSON object with a single key 'frames' containing an array of scene objects.
+Each scene object must have "scene_number" (int), "visual" (string describing the shot), "action" (short phrase like "Wide shot" or "Close-up"), and "narration" (voice-over dialog for this scene).
+
+Story: {story_text}"""
+
+    req_payload = {
+        "model": model_id,
+        "temperature": 0.7,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    
+    import json
+    import urllib.request as urllib_request
+    body = json.dumps(req_payload).encode("utf-8")
+    req = urllib_request.Request(
+        f"{ARK_API_BASE}/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    
+    try:
+        with urllib_request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_json = data["choices"][0]["message"]["content"].strip()
+        parsed = json.loads(raw_json)
+        return jsonify(parsed)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/jobs", methods=["GET"])
