@@ -1746,7 +1746,9 @@ document.addEventListener("DOMContentLoaded", () => {
               <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Voice Narration</label>
               <textarea placeholder="Narration / Dialogue..." style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
             </div>
-            <div class="frame-action">Preview</div>
+            <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
+              <button type="button" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--acc-amber, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
+            </div>
           `;
           trackItems.appendChild(fDiv);
         });
