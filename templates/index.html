@@ -47,6 +47,15 @@
     }
 
     
+    /* UI clarity helpers */
+    .settings-row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; }
+    .settings-row .field { flex:1; min-width:140px; }
+    .settings-row .field.compact { flex:0 0 auto; min-width:auto; }
+    .helper { font-size:12px; color:var(--ghost); line-height:1.5; margin-top:6px; }
+    .helper strong { color:var(--mid); }
+    .inline-checkbox { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--mid); }
+    .inline-checkbox input { width:auto; }
+
     /* ── cinematic timeline ui ── */
     .timeline-container {
       margin-top: 32px;
@@ -1192,6 +1201,7 @@
                   <label for="job-title">Project title</label>
                   <input id="job-title" type="text" placeholder="Campaign launch / brand story / product cut" required>
                 </div>
+
                 <div class="field full">
                   <label>Story input</label>
                   <div class="input-tabs">
@@ -1200,12 +1210,35 @@
                   </div>
                   <div id="input-text-wrap">
                     <textarea id="story-text" placeholder="Write your story here — a paragraph, a scene, a brief. 琳嫣 will plan every shot." rows="5"></textarea>
+                    <p class="helper">The timeline below turns this story into editable scenes. Tweak prompts and narration before rendering.</p>
                   </div>
                   <div id="input-file-wrap" style="display:none;">
                     <input id="storyboard-file" type="file" accept=".md,text/markdown">
                     <p class="muted small" style="margin-top:6px;">Upload a pre-planned storyboard to skip AI planning.</p>
                   </div>
                 </div>
+              </div>
+
+              <!-- Interactive Storyboard Timeline -->
+              <div class="timeline-container" id="storyboard-timeline" style="margin: 24px 0;">
+                <div class="timeline-header">
+                  <span>Storyboard Timeline</span>
+                  <div style="display:flex; gap: 8px;">
+                    <button type="button" class="btn btn-ghost" id="timeline-gen-btn" style="padding: 4px 12px; font-size: 12px;">Generate Draft</button>
+                  </div>
+                </div>
+                <div class="timeline-track-wrap">
+                  <div class="timeline-empty" id="timeline-empty-state">
+                    Write your story, then click <strong>Generate Draft</strong> to preview scenes.
+                  </div>
+                  <div class="timeline-track" id="timeline-track-items" style="display:none;">
+                    <!-- Cards injected by JS -->
+                  </div>
+                </div>
+              </div>
+              <!-- End Timeline -->
+
+              <div class="form-grid">
                 <div class="field">
                   <label for="planner-model">Planner model</label>
                   <select id="planner-model"></select>
@@ -1231,7 +1264,7 @@
                     <option value="4k">4k — premium</option>
                   </select>
                 </div>
-                <div class="field">
+                <div class="field full">
                   <label for="style-preset">Style preset</label>
                   <select id="style-preset">
                     <option value="Cinematic realism">Cinematic realism</option>
@@ -1240,21 +1273,75 @@
                     <option value="Commercial polish">Commercial polish</option>
                   </select>
                 </div>
-                <div class="field">
-                  <label for="target-duration">Duration (seconds)</label>
-                  <input id="target-duration" type="number" min="8" max="180" value="30">
+
+                <!-- Time row -->
+                <div class="field full">
+                  <label>Time</label>
+                  <div class="settings-row">
+                    <div class="field compact">
+                      <label class="inline-checkbox">
+                        <input type="checkbox" id="smart-duration" checked>
+                        Smart duration
+                      </label>
+                    </div>
+                    <div class="field">
+                      <label for="target-duration">Total duration (seconds)</label>
+                      <input id="target-duration" type="number" min="8" max="180" value="30">
+                    </div>
+                  </div>
+                  <p class="helper" id="duration-helper">Smart duration estimates length from your story word count.</p>
                 </div>
-                <div class="field">
-                  <label for="voice-model">Narration voice</label>
-                  <select id="voice-model"></select>
+
+                <!-- Voice row -->
+                <div class="field full">
+                  <label>Voice</label>
+                  <div class="settings-row">
+                    <div class="field">
+                      <label for="voice-model">Narration voice</label>
+                      <select id="voice-model"></select>
+                    </div>
+                    <div class="field compact" style="padding-bottom:10px;">
+                      <label class="inline-checkbox">
+                        <input id="narration-enabled" type="checkbox">
+                        Generate narration text for each scene
+                      </label>
+                    </div>
+                  </div>
+                  <p class="helper">Narration text is written into each scene. A voice pass will be added when TTS is wired.</p>
                 </div>
-                <div class="field">
-                  <label>&nbsp;</label>
-                  <label class="checkbox-row">
-                    <input id="narration-enabled" type="checkbox">
-                    Enable narration + voice pass
-                  </label>
+
+                <!-- Music row -->
+                <div class="field full">
+                  <label>Music</label>
+                  <div class="settings-row">
+                    <div class="field compact" style="padding-bottom:10px;">
+                      <label class="inline-checkbox">
+                        <input id="music-enabled" type="checkbox">
+                        Add background music
+                      </label>
+                    </div>
+                    <div class="field">
+                      <label for="music-style">Music style</label>
+                      <select id="music-style" onchange="applyMusicStyle()">
+                        <option value="">Auto (planner decides)</option>
+                        <option value="cinematic instrumental underscore, gentle, atmospheric">Cinematic underscore</option>
+                        <option value="epic orchestral trailer music, heroic, dramatic">Epic orchestral</option>
+                        <option value="upbeat electronic pop, bright, driving">Upbeat electronic</option>
+                        <option value="lo-fi hip hop, chill, warm, relaxed">Lo-fi chill</option>
+                        <option value="ambient piano, sparse, emotional, intimate">Ambient piano</option>
+                        <option value="tension drone, dark, suspenseful, minimal">Tension drone</option>
+                        <option value="acoustic folk, warm, organic, hopeful">Acoustic folk</option>
+                        <option value="retro synthwave, neon, pulsing, 80s">Synthwave</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="music-prompt">Custom music prompt</label>
+                      <input id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)">
+                    </div>
+                  </div>
+                  <p class="helper">Music is generated separately and mixed under the final video. Leave blank for the planner to choose.</p>
                 </div>
+
                 <div class="field">
                   <label for="planner-temperature">Planner temperature</label>
                   <div class="range-meta"><span>deterministic</span><span class="range-val" id="planner-temperature-value">0.4</span></div>
@@ -1282,39 +1369,7 @@
                 </div>
               </div>
               
-              <!-- Interactive Timeline (Mock) -->
-              <div class="timeline-container" id="storyboard-timeline" style="margin-bottom: 24px;">
-                <div class="timeline-header">
-                  <span>Storyboard Timeline</span>
-                  <div style="display:flex; gap: 8px;">
-                    <button type="button" class="btn btn-ghost" style="padding: 4px 12px; font-size: 12px;">Generate Draft</button>
-                  </div>
-                </div>
-                <div class="timeline-track-wrap">
-                  <div class="timeline-empty" id="timeline-empty-state">
-                    Enter your story and click "Generate Draft" to build the timeline...
-                  </div>
-                  <div class="timeline-track" id="timeline-track-items" style="display:none;">
-                    <!-- Example Frames -->
-                    <div class="timeline-frame active">
-                      <div class="frame-number">1</div>
-                      <div style="font-size: 12px; padding: 10px; color: var(--muted); text-align:center;">Wide shot: A bustling cyber city.</div>
-                      <div class="frame-action">Preview</div>
-                    </div>
-                    <div class="timeline-frame">
-                      <div class="frame-number">2</div>
-                      <div style="font-size: 12px; padding: 10px; color: var(--muted); text-align:center;">Close-up: Neon lights reflecting in a puddle.</div>
-                      <div class="frame-action">Preview</div>
-                    </div>
-                    <div class="timeline-frame">
-                      <div class="frame-number">3</div>
-                      <div style="font-size: 12px; padding: 10px; color: var(--muted); text-align:center;">Medium: A figure walking in the rain.</div>
-                      <div class="frame-action">Preview</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <!-- End Timeline -->
+              
 
               <div class="quote-bar">
                 <div>
@@ -1427,7 +1482,27 @@
     function show(id){document.getElementById(id).style.display="";}
     function hide(id){document.getElementById(id).style.display="none";}
     function getJobConfig(){
-      return{title:document.getElementById("job-title").value.trim(),planner_model:document.getElementById("planner-model").value,video_model:document.getElementById("video-model").value,aspect_ratio:document.getElementById("aspect-ratio").value,resolution:document.getElementById("resolution").value,style_preset:document.getElementById("style-preset").value,target_duration:Number(document.getElementById("target-duration").value),voice_model:document.getElementById("voice-model").value,narration_enabled:document.getElementById("narration-enabled").checked,planner_temperature:Number(document.getElementById("planner-temperature").value),direction_temperature:Number(document.getElementById("direction-temperature").value),motion_temperature:Number(document.getElementById("motion-temperature").value),dialogue_temperature:Number(document.getElementById("dialogue-temperature").value),consistency_strength:Number(document.getElementById("consistency-strength").value)};
+      // Collect timeline narration into the story when in text mode
+      var storyText = document.getElementById("story-text").value.trim();
+      var timelineNarration = "";
+      if(state.inputMode === "text"){
+        var items = document.querySelectorAll("#timeline-track-items .frame-narration");
+        if(items.length){
+          var lines = [];
+          items.forEach(function(ta, idx){
+            var v = ta.value.trim();
+            if(v) lines.push("Scene " + (idx+1) + " narration: " + v);
+          });
+          if(lines.length) timelineNarration = "\n\n---\n" + lines.join("\n");
+        }
+      }
+      var smartDur = document.getElementById("smart-duration").checked;
+      var targetDuration = Number(document.getElementById("target-duration").value);
+      if(smartDur && storyText){
+        var wc = storyText.split(/\s+/).filter(Boolean).length;
+        targetDuration = Math.max(8, Math.min(180, Math.round(wc * 0.6)));
+      }
+      return{title:document.getElementById("job-title").value.trim(),planner_model:document.getElementById("planner-model").value,video_model:document.getElementById("video-model").value,aspect_ratio:document.getElementById("aspect-ratio").value,resolution:document.getElementById("resolution").value,style_preset:document.getElementById("style-preset").value,target_duration:targetDuration,voice_model:document.getElementById("voice-model").value,narration_enabled:document.getElementById("narration-enabled").checked,music_enabled:document.getElementById("music-enabled").checked,music_prompt:document.getElementById("music-prompt").value.trim(),planner_temperature:Number(document.getElementById("planner-temperature").value),direction_temperature:Number(document.getElementById("direction-temperature").value),motion_temperature:Number(document.getElementById("motion-temperature").value),dialogue_temperature:Number(document.getElementById("dialogue-temperature").value),consistency_strength:Number(document.getElementById("consistency-strength").value),timeline_narration_append: timelineNarration};
     }
     function bindRange(id){
       var i=document.getElementById(id),o=document.getElementById(id+"-value");
@@ -1501,7 +1576,12 @@
       btn.disabled=true;btn.textContent="Rendering…";
       try{
         var fd=new FormData();
-        if(state.inputMode==="text"){fd.append("file",new Blob([document.getElementById("story-text").value],{type:"text/markdown"}),"story.md");}
+        if(state.inputMode==="text"){
+          var cfg=getJobConfig();
+          var storyBody=document.getElementById("story-text").value;
+          if(cfg.timeline_narration_append) storyBody += cfg.timeline_narration_append;
+          fd.append("file",new Blob([storyBody],{type:"text/markdown"}),"story.md");
+        }
         else{fd.append("file",document.getElementById("storyboard-file").files[0]);}
         fd.append("config",JSON.stringify(getJobConfig()));
         var r=await fetch("/api/jobs",{method:"POST",body:fd});var d=JSON.parse(await r.text());
@@ -1514,7 +1594,19 @@
     });
     document.getElementById("settings-form").addEventListener("submit",async function(e){e.preventDefault();clearFlash();try{await jsonFetch("/api/admin/settings",{method:"POST",body:JSON.stringify({allow_signup:document.getElementById("admin-allow-signup").checked,margin_multiplier:Number(document.getElementById("admin-margin").value),signup_bonus_credits:Number(document.getElementById("admin-signup-bonus").value),base_job_credits:Number(document.getElementById("admin-base-job").value),default_planner_model:document.getElementById("planner-model").value,default_video_model:document.getElementById("video-model").value})});showFlash("ok","Settings saved.");await refreshSession();}catch(err){showFlash("error",err.message);}});
     document.getElementById("topup-form").addEventListener("submit",async function(e){e.preventDefault();clearFlash();try{await jsonFetch("/api/admin/topups",{method:"POST",body:JSON.stringify({user_id:Number(document.getElementById("topup-user").value),delta:Number(document.getElementById("topup-delta").value),note:document.getElementById("topup-note").value})});showFlash("ok","Balance updated.");await refreshSession();}catch(err){showFlash("error",err.message);}});
-    ["planner-model","video-model","aspect-ratio","resolution","style-preset","target-duration","voice-model","narration-enabled","planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(function(id){var el=document.getElementById(id);el.addEventListener("change",function(){refreshQuote().catch(function(){});});el.addEventListener("input",function(){refreshQuote().catch(function(){});});});
+    ["planner-model","video-model","aspect-ratio","resolution","style-preset","target-duration","voice-model","narration-enabled","music-enabled","music-style","music-prompt","planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener("change",function(){refreshQuote().catch(function(){});});el.addEventListener("input",function(){refreshQuote().catch(function(){});});});
+    (function initSmartDuration(){ var sd=document.getElementById("smart-duration"); if(sd){ sd.checked=true; document.getElementById("target-duration").disabled=true; document.getElementById("duration-helper").textContent="Smart duration estimates length from your story word count."; }})();
+    document.getElementById("smart-duration").addEventListener("change", function(){
+      var smart=this.checked;
+      document.getElementById("target-duration").disabled = smart;
+      document.getElementById("duration-helper").textContent = smart ? "Smart duration estimates length from your story word count." : "Set the total video length manually.";
+      refreshQuote().catch(function(){});
+    });
+    function applyMusicStyle(){
+      var sel=document.getElementById("music-style").value;
+      var mp=document.getElementById("music-prompt");
+      if(sel && !mp.value.trim()) mp.value=sel;
+    }
     ["planner-temperature","direction-temperature","motion-temperature","dialogue-temperature","consistency-strength"].forEach(bindRange);
     refreshSession().catch(function(err){showFlash("error",err.message);});
 
@@ -1648,12 +1740,12 @@ document.addEventListener("DOMContentLoaded", () => {
           fDiv.innerHTML = `
             <div class="frame-number">${frame.scene_number || (idx + 1)}</div>
             <div style="padding: 10px; display: flex; flex-direction: column; gap: 6px; flex: 1;">
-              <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Visual Prompt & Action</label>
-              <textarea style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); flex: 1; min-height: 80px;" rows="4">${frame.action}: ${frame.visual}</textarea>
+              <label style="font-size: 10px; color: var(--ghost); text-transform: uppercase;">Visual Prompt & Action</label>
+              <textarea style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--ink); flex: 1; min-height: 80px;" rows="4">${frame.action}: ${frame.visual}</textarea>
             </div>
             <div class="frame-voice" style="padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px;">
-              <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Voice Narration</label>
-              <textarea placeholder="Narration / Dialogue..." style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
+              <label style="font-size: 10px; color: var(--ghost); text-transform: uppercase;">Voice Narration</label>
+              <textarea placeholder="Narration / dialogue for this scene..." class="frame-narration" style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--ink); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
             </div>
             <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
               <button type="button" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
