@@ -351,6 +351,8 @@
     .je-dl{font:300 10px var(--mono);letter-spacing:0.1em;color:var(--mol-muted);text-decoration:none;}
     .je-edit{font:300 10px var(--mono);letter-spacing:0.1em;color:var(--acc-amber-dim);background:none;border:none;cursor:pointer;padding:0;text-decoration:none;}
     .je-edit:hover{color:var(--acc-amber);}
+    .je-delete{font:300 10px var(--mono);letter-spacing:0.1em;color:var(--danger);background:none;border:none;cursor:pointer;padding:0;text-decoration:none;}
+    .je-delete:hover{color:#ff6b6b;}
     .je-dl:hover{color:var(--mol-mid);}
     .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);}
 
@@ -1308,6 +1310,21 @@
       updateDial(dialName, val);
     }
 
+    async function deleteJob(jobId) {
+      if (!confirm('Delete this project permanently?')) return;
+      try {
+        var r = await fetch('/api/jobs/' + jobId, {method: 'DELETE'});
+        var d = {};
+        try { d = await r.json(); } catch(_) {}
+        if (!r.ok) throw new Error(d.error || 'Delete failed.');
+        state.jobs = state.jobs.filter(function(j){ return j.id !== jobId; });
+        renderJournal();
+        updateFilmCounter(state.jobs.length);
+      } catch (err) {
+        showFlash('error', err.message);
+      }
+    }
+
     // Loads a past job's original storyboard text and full config back into
     // the render form, so it can be edited and resubmitted as a new job.
     // This is a *new* job on submit, not an edit of the old one — the old
@@ -1489,6 +1506,7 @@
             '<span class="je-credits">'+j.estimated_credits.toFixed(1)+' cr</span>'+
             (j.status==='completed'?'<a class="je-dl" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="je-credits muted">'+j.status+'</span>')+
             '<button class="je-edit" type="button" onclick="reloadJobForEdit(\''+j.id+'\')" title="Reload this job\u2019s storyboard and settings to edit and resubmit">✎ Edit &amp; reprompt</button>'+
+            '<button class="je-delete" type="button" onclick="deleteJob(\\\''+j.id+'\\\')" title="Delete this project permanently">Delete</button>'+
           '</div>'+
           '</div>';
       }).join('');

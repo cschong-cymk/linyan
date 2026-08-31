@@ -48,6 +48,10 @@ DATABASE_URL = os.environ.get(
 ARK_API_KEY = os.environ.get("ARK_API_KEY")
 ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
 
+# Google Gemini (used as an alternative planner)
+GOOGLE_GEMINI_API_KEY = os.environ.get("GOOGLE_GEMINI_OMNI_API_KEY")
+GOOGLE_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
 # ── kie.ai (Suno wrapper) — background music ─────────────────────────────────
 # Verified live 2026-07-23: POST /generate (callBackUrl is REQUIRED even when
 # polling; a dead callback URL doesn't block completion), poll
@@ -121,6 +125,13 @@ MODEL_CATALOG = {
             "family": "ark",
             "recommended": True,
             "summary": "Latest Seed 2.1 Turbo planner. (Pricing: Input 0.5, Output 2.5)",
+        },
+        {
+            "id": "gemini-omni-1-1-flash",
+            "label": "Gemini Omni 1.1 Flash",
+            "family": "google",
+            "recommended": False,
+            "summary": "Google Gemini planning. (Pricing: Input 0.075, Output 0.30)",
         },
     ],
     "video_models": [
@@ -593,6 +604,8 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
 
     if pm == "dola-seed-2-1-turbo-260628":
         planner_usd = (pt / 1000.0) * 0.070 + (ct / 1000.0) * 0.350
+    elif pm == "gemini-omni-1-1-flash":
+        planner_usd = (pt / 1000.0) * 0.075 + (ct / 1000.0) * 0.30
     else:
         planner_usd = (pt / 1000.0) * 0.030 + (ct / 1000.0) * 0.080
         
@@ -936,6 +949,179 @@ def populate_character_reference_images(job_id, character_bible, config):
     return character_bible
 
 
+
+def call_google_planner(storyboard_text, config, target, max_shots):
+    """
+    Call Google Gemini as an alternative planner.
+    Mirrors call_planner's output shape exactly.
+    """
+    if not GOOGLE_GEMINI_API_KEY:
+        return {
+            "status": "skipped",
+            "message": "GOOGLE_GEMINI_OMNI_API_KEY not configured.",
+            "characters": {},
+            "shots": [],
+            "plan_text": "",
+        }
+
+    system_prompt = textwrap.dedent("""
+        You are a professional video production planner working with a text-to-video
+        model that has NO memory between shots — every shot is generated from scratch,
+        independently, with no awareness of any other shot's output.
+
+        Step 1 — Build a character bible.
+        Identify every named or recurring character in the storyboard. For each one,
+        write ONE exhaustive physical description: age, build, hair, face, exact
+        clothing (including color), and any distinguishing props or features. Avoid
+        vague terms like "nice dress" — be specific enough that two different artists
+        reading only this description would draw the same person.
+
+        Step 2 — Break the story into shots.
+        Each shot must have a duration between 4 and 15 seconds (integers only).
+        The sum of shot durations should be close to the target duration.
+        Use at most max_shots shots.
+
+        For each shot, write a prompt that includes only setting, lighting, action,
+        and composition. Do NOT redescribe a character's physical appearance inside
+        the shot's `prompt` field — that gets attached automatically from the bible.
+        The `prompt` field should only describe setting, lighting, action, and composition.
+
+        Return ONLY valid JSON — no markdown fences, no commentary.
+        The JSON must match this schema exactly:
+        {
+          "characters": [
+            {"name": "<exact name, reused consistently>", "description": "<full canonical visual description>"}
+          ],
+          "shots": [
+            {
+              "index": <integer, 1-based>,
+              "duration": <integer, 4-15>,
+              "characters_in_shot": ["<exact name from characters[]>", ...],
+              "prompt": "<setting, lighting, and action only — no character physical description>",
+              "camera": "<camera movement and framing note>",
+              "narration": "<voice-over line, or empty string if none>"
+            }
+          ],
+          "music_prompt": "<one short instrumental music description for the WHOLE video (mood, instruments, tempo — e.g. 'sparse piano and strings, melancholic, slow tempo'), no lyrics, max 300 characters>"
+        }
+        Rules:
+        - Every name in characters_in_shot must exactly match a name in characters[].
+        - Keep narration lines short enough to fit the shot duration at normal speaking pace.
+        - Do not reference shot numbers or metadata inside the prompt field.
+    """).strip()
+
+    user_prompt = textwrap.dedent(f"""
+        Target duration: {target} seconds (max {max_shots} shots)
+        Aspect ratio: {config["aspect_ratio"]}
+        Narration enabled: {config["narration_enabled"]}
+        Consistency strength: {config["consistency_strength"]}
+
+        Storyboard (prose):
+        {storyboard_text[:12000]}
+    """).strip()
+
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": system_prompt + "\n\n" + user_prompt}]},
+        ],
+        "generationConfig": {
+            "temperature": config["planner_temperature"],
+            "responseMimeType": "application/json",
+        },
+    }
+
+    model_name = "gemini-2.5-flash"  # stable alias for the Omni 1.1 Flash catalog entry
+    url = f"{GOOGLE_GEMINI_BASE}/models/{model_name}:generateContent?key={GOOGLE_GEMINI_API_KEY}"
+    req = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_json = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        parsed = json.loads(raw_json)
+        usage_meta = data.get("usageMetadata", {})
+        usage = {
+            "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+            "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+            "total_tokens": usage_meta.get("totalTokenCount", 0),
+        }
+
+        character_bible = {}
+        for c in parsed.get("characters", []):
+            name = str(c.get("name", "")).strip()
+            desc = str(c.get("description", "")).strip()
+            if not (name and desc):
+                continue
+            character_bible[name] = {"description": desc, "reference_image_url": None}
+
+        clean_shots = []
+        for i, s in enumerate(parsed.get("shots", [])):
+            duration = int(s.get("duration", 5))
+            duration = max(4, min(15, duration))
+            characters_in_shot = [
+                str(n).strip() for n in s.get("characters_in_shot", []) if str(n).strip()
+            ]
+            base_prompt = str(s.get("prompt", "")).strip()
+            locked_prompt = lock_characters_into_prompt(
+                base_prompt,
+                characters_in_shot,
+                character_bible,
+                config.get("consistency_strength", 0.7),
+            )
+            clean_shots.append({
+                "index": i + 1,
+                "duration": duration,
+                "characters_in_shot": characters_in_shot,
+                "prompt": locked_prompt,
+                "camera": str(s.get("camera", "")).strip(),
+                "narration": str(s.get("narration", "")).strip(),
+            })
+        return {
+            "status": "ok",
+            "message": (
+                f"Planner produced {len(clean_shots)} shots via Gemini "
+                f"({len(character_bible)} character(s) identified for consistency "
+                f"locking; reference images generated separately once cost is confirmed)."
+            ),
+            "characters": character_bible,
+            "shots": clean_shots,
+            "music_prompt": str(parsed.get("music_prompt", "")).strip()[:450],
+            "usage": usage,
+            "plan_text": json.dumps(
+                {
+                    "characters": character_bible,
+                    "shots": clean_shots,
+                    "music_prompt": str(parsed.get("music_prompt", "")).strip()[:450],
+                },
+                indent=2,
+            ),
+        }
+    except urllib_error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            body = ""
+        return {
+            "status": "failed",
+            "message": f"Gemini request failed: {exc.code} {exc.reason} {body}".strip(),
+            "characters": {},
+            "shots": [],
+            "plan_text": "",
+        }
+    except (urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError, ValueError) as exc:
+        return {
+            "status": "failed",
+            "message": f"Planner response parse error: {exc}",
+            "characters": {},
+            "shots": [],
+            "plan_text": "",
+        }
+
 def lock_characters_into_prompt(base_prompt, characters_in_shot, character_bible, consistency_strength):
     """
     Deterministically prepend each character's canonical description onto a shot
@@ -1030,15 +1216,6 @@ def call_planner(storyboard_text, config):
         "plan_text": str           # raw JSON string for the plan file
       }
     """
-    if not ARK_API_KEY:
-        return {
-            "status": "skipped",
-            "message": "ARK_API_KEY not configured.",
-            "characters": {},
-            "shots": [],
-            "plan_text": "",
-        }
-
     # Decide reasonable shot count from target duration.
     # Seedance supports clips from 4-15 s. We prefer ~5 s clips for tighter control,
     # allowing longer only when the planner decides a scene needs more breathing room.
@@ -1048,6 +1225,19 @@ def call_planner(storyboard_text, config):
         sentence_count = max(1, len([s for s in storyboard_text.replace("!", ".").replace("?", ".").split(".") if s.strip()]))
         target = min(max(sentence_count * 3, 20), 90)
     max_shots = max(1, target // 5)   # upper bound: one 5-second clip per slot
+
+    # Dispatch to Google Gemini for google-family planner models.
+    if config.get("planner_model") in ("gemini-omni-1-1-flash", "gemini-2.5-flash"):
+        return call_google_planner(storyboard_text, config, target, max_shots)
+
+    if not ARK_API_KEY:
+        return {
+            "status": "skipped",
+            "message": "ARK_API_KEY not configured.",
+            "characters": {},
+            "shots": [],
+            "plan_text": "",
+        }
 
     system_prompt = textwrap.dedent("""
         You are a professional video production planner working with a text-to-video
@@ -1178,7 +1368,7 @@ def call_planner(storyboard_text, config):
         return {
             "status": "ok",
             "message": (
-                f"Planner produced {len(clean_shots)} shots via ModelArk "
+                f"Planner produced {len(clean_shots)} shots "
                 f"({len(character_bible)} character(s) identified for consistency "
                 f"locking; reference images generated separately once cost is confirmed)."
             ),
@@ -2565,6 +2755,45 @@ def download_job(job_id):
         return jsonify({"error": "Artifact missing on disk."}), 404
     download_name = f"{secure_filename(row['title']) or 'linyan-render'}.{row['output_kind']}"
     return send_file(path, as_attachment=True, download_name=download_name)
+
+
+@app.route("/api/jobs/<job_id>", methods=["DELETE"])
+@login_required
+def delete_job(job_id):
+    """
+    Delete a job and all associated on-disk artifacts.
+    Refunds are not issued; this only cleans up storage.
+    """
+    cur = db_execute(
+        "SELECT * FROM jobs WHERE id = %s AND user_id = %s",
+        (job_id, g.current_user["id"]),
+    )
+    row = cur.fetchone()
+    if not row:
+        return jsonify({"error": "Job not found."}), 404
+
+    # Remove associated files
+    paths = [
+        row["storyboard_path"],
+        row["render_plan_path"],
+        row["output_path"],
+    ]
+    for p in paths:
+        if p:
+            try:
+                Path(p).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    # Remove character reference images tied to this job
+    try:
+        for ref in CHARACTER_DIR.glob(f"{job_id}-ref-*"):
+            ref.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    db_execute("DELETE FROM jobs WHERE id = %s", (job_id,), commit=True)
+    return jsonify({"success": True})
 
 
 @app.route("/api/jobs/<job_id>/source")
