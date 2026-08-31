@@ -512,8 +512,7 @@ def normalize_config(raw_config, settings):
         "style_preset": raw_config.get("style_preset") or "Cinematic realism",
         "voice_model": raw_config.get("voice_model") or "none",
         "narration_enabled": bool(raw_config.get("narration_enabled")),
-        # Smart duration: null/0 means let the planner decide from story length.
-        "target_duration": clamp_int(raw_config.get("target_duration"), 30, 8, 180) if raw_config.get("target_duration") else None,
+        "target_duration": clamp_int(raw_config.get("target_duration"), 30, 8, 180),
         "planner_temperature": clamp_float(raw_config.get("planner_temperature"), 0.4, 0.0, 1.0),
         "direction_temperature": clamp_float(raw_config.get("direction_temperature"), 0.5, 0.0, 1.0),
         "motion_temperature": clamp_float(raw_config.get("motion_temperature"), 0.5, 0.0, 1.0),
@@ -532,7 +531,7 @@ def normalize_config(raw_config, settings):
     return config
 
 
-def estimate_job_cost(config, settings, character_count=None, planner_usage=None, actual_duration=None):
+def estimate_job_cost(config, settings, character_count=None, planner_usage=None):
     """
     Estimate job cost in Linyan credits based on real Seedance 2.0 published rates.
 
@@ -577,8 +576,7 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
     if character_count is None:
         character_count = clamp_int(settings.get("quote_character_assumption"), 2, 0, 20)
 
-    video_seconds = actual_duration if actual_duration else (config.get("target_duration") or 30)
-    # smart duration: before planning we guess 30s for the quote; after planning we use the real total
+    video_seconds = config["target_duration"]
     reference_seconds = character_count * REFERENCE_CLIP_DURATION
 
     planner_usd = 0.0
@@ -1042,11 +1040,7 @@ def call_planner(storyboard_text, config):
     # Decide reasonable shot count from target duration.
     # Seedance supports clips from 4-15 s. We prefer ~5 s clips for tighter control,
     # allowing longer only when the planner decides a scene needs more breathing room.
-    target = config.get("target_duration")
-    if not target:
-        # Smart duration: derive from story length, ~3s per sentence, min 20s, cap 90s.
-        sentence_count = max(1, len([s for s in storyboard_text.replace("!", ".").replace("?", ".").split(".") if s.strip()]))
-        target = min(max(sentence_count * 3, 20), 90)
+    target = config["target_duration"]
     max_shots = max(1, target // 5)   # upper bound: one 5-second clip per slot
 
     system_prompt = textwrap.dedent("""
@@ -1339,8 +1333,7 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         # extracted, zero reference renders incurred) — recomputing here isn't
         # one-directional, it's just accurate.
         character_count = len(planner.get("characters", {}))
-        actual_duration = sum(int(s.get("duration", 5)) for s in planner.get("shots", [])) if not config.get("target_duration") else None
-        estimated_credits, _provider = estimate_job_cost(config, settings, character_count=character_count, planner_usage=planner.get("usage"), actual_duration=actual_duration)
+        estimated_credits, _provider = estimate_job_cost(config, settings, character_count=character_count, planner_usage=planner.get("usage"))
 
         cur = db.cursor()
         cur.execute("SELECT credit_balance FROM users WHERE id = %s", (user_id,))
@@ -1828,14 +1821,6 @@ def studio():
     if not user:
         return redirect("/")
     return render_template("inner.html")
-
-
-@app.route("/journal")
-def journal():
-    user = current_user()
-    if not user:
-        return redirect("/")
-    return render_template("inner.html", open_panel="journal")
 
 
 @app.route("/api/music/callback", methods=["POST"])

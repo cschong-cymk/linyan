@@ -1830,14 +1830,6 @@ def studio():
     return render_template("inner.html")
 
 
-@app.route("/journal")
-def journal():
-    user = current_user()
-    if not user:
-        return redirect("/")
-    return render_template("inner.html", open_panel="journal")
-
-
 @app.route("/api/music/callback", methods=["POST"])
 def music_callback():
     """kie.ai requires a callBackUrl at submit time even though this app polls

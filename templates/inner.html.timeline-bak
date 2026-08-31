@@ -43,124 +43,6 @@
     html{scroll-behavior:smooth;}
     body{font-family:var(--sans);font-size:15.5px;font-weight:400;line-height:1.7;background:var(--acc-dark);min-height:100vh;overflow-x:hidden;}
 
-    
-    /* ── cinematic timeline ui (inner) ── */
-    .timeline-container {
-      margin-top: 12px;
-      background: var(--acc-body);
-      border: 1px solid var(--acc-line);
-      border-radius: 4px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      flex: 0 0 auto;
-      min-height: 280px;
-      max-height: 520px;
-    }
-    .timeline-header {
-      padding: 10px 16px;
-      background: var(--acc-dark);
-      border-bottom: 1px solid var(--acc-line);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font: 400 13px var(--mono);
-      color: var(--acc-fascia);
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
-    .timeline-track-wrap {
-      padding: 16px;
-      overflow-y: auto;
-      overflow-x: hidden;
-      background: #000;
-      flex: 1;
-      display: block;
-    }
-    .timeline-track {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-    .timeline-frame {
-      background: #000;
-      border: 1px solid var(--acc-line);
-      border-radius: 3px;
-      position: relative;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      flex-direction: column;
-      aspect-ratio: 1 / 1;
-      overflow: hidden;
-      color: #fff;
-    }
-    .timeline-frame:hover {
-      border-color: var(--acc-amber);
-    }
-    .timeline-frame.active {
-      border-color: var(--ok);
-    }
-    .timeline-frame img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      opacity: 0.6;
-    }
-    .timeline-frame .frame-number {
-      position: absolute;
-      top: 4px;
-      left: 6px;
-      font: 700 10px var(--mono);
-      background: rgba(0,0,0,0.8);
-      padding: 2px 5px;
-      border-radius: 2px;
-      color: var(--acc-amber);
-    }
-    .timeline-frame .frame-action {
-      position: absolute;
-      bottom: 4px;
-      right: 6px;
-      font: 400 10px var(--sans);
-      background: var(--acc-amber);
-      color: #000;
-      padding: 2px 6px;
-      border-radius: 2px;
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-    .timeline-frame:hover .frame-action {
-      opacity: 1;
-    }
-    .timeline-empty {
-      color: var(--mol-ghost);
-      font: 300 13px var(--serif);
-      width: 100%;
-      text-align: center;
-      font-style: italic;
-    }
-    .btn-timeline {
-      padding: 8px 14px;
-      background: linear-gradient(180deg, #e8a020, #c08018);
-      border: none;
-      border-radius: 3px;
-      font: 400 11px var(--mono);
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #1a1408;
-      cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 2px 6px rgba(232,160,32,0.25), inset 0 1px 0 rgba(255,220,160,0.35);
-    }
-    .btn-timeline:hover {
-      background: linear-gradient(180deg, #f0b028, #d89020);
-      box-shadow: 0 2px 10px rgba(232,160,32,0.4), inset 0 1px 0 rgba(255,220,160,0.4);
-    }
-    .btn-timeline:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
     /* ══ TOPBAR — wooden Accuphase fascia ══ */
     .topbar{
       height:56px;
@@ -452,53 +334,17 @@
     /* render button — the record button */
     .render-btn-wrap{padding:4px 0 8px;}
     .render-btn{
-      width:100%;padding:14px 18px;
+      width:100%;padding:14px;
       background:linear-gradient(180deg, #c84820, #a03818);
       border:none;border-radius:3px;
-      font:400 11px var(--mono);letter-spacing:0.12em;text-transform:uppercase;
+      font:400 11px var(--mono);letter-spacing:0.22em;text-transform:uppercase;
       color:#f4e8d8;cursor:pointer;
       position:relative;overflow:hidden;
       transition:all 0.2s;
       box-shadow:0 2px 8px rgba(200,72,32,0.3), inset 0 1px 0 rgba(255,200,160,0.2);
     }
-    .render-btn:hover{background:linear-gradient(180deg,#e05028,#b84020);box-shadow:0 2px 14px rgba(200,72,32,0.45), inset 0 1px 0 rgba(255,200,160,0.25);}
+    .render-btn:hover{background:linear-gradient(180deg,#e05028,#b84020);box-shadow:0 2px 16px rgba(200,72,32,0.5),inset 0 1px 0 rgba(255,200,160,0.2);}
     .render-btn:disabled{opacity:0.4;cursor:not-allowed;}
-
-    /* ══ UNIFIED BUTTON SYSTEM ══ */
-    .btn-primary, .btn-secondary, .btn-ghost, .btn-link{
-      display:inline-flex;align-items:center;justify-content:center;
-      font:400 11px var(--mono);letter-spacing:0.12em;text-transform:uppercase;
-      border-radius:3px;cursor:pointer;transition:all 0.2s;white-space:nowrap;
-    }
-    .btn-primary{
-      padding:12px 18px;
-      background:linear-gradient(180deg, #c84820, #a03818);
-      border:none;color:#f4e8d8;
-      box-shadow:0 2px 8px rgba(200,72,32,0.3), inset 0 1px 0 rgba(255,200,160,0.2);
-    }
-    .btn-primary:hover{background:linear-gradient(180deg,#e05028,#b84020);box-shadow:0 2px 14px rgba(200,72,32,0.45), inset 0 1px 0 rgba(255,200,160,0.25);}
-    .btn-primary:disabled{opacity:0.4;cursor:not-allowed;}
-    .btn-secondary{
-      padding:8px 14px;
-      background:linear-gradient(180deg, #e8a020, #c08018);
-      border:none;color:#1a1408;
-      box-shadow:0 2px 6px rgba(232,160,32,0.25), inset 0 1px 0 rgba(255,220,160,0.35);
-    }
-    .btn-secondary:hover{background:linear-gradient(180deg,#f0b028,#d89020);box-shadow:0 2px 10px rgba(232,160,32,0.4), inset 0 1px 0 rgba(255,220,160,0.4);}
-    .btn-ghost{
-      padding:8px 14px;
-      background:transparent;
-      border:1px solid rgba(249,168,201,0.5);
-      color:#f9a8c9;
-    }
-    .btn-ghost:hover{background:rgba(249,168,201,0.12);border-color:rgba(249,168,201,0.7);}
-    .btn-link{
-      padding:4px 0;
-      background:transparent;border:none;
-      font:300 10px var(--mono);letter-spacing:0.1em;
-      color:rgba(232,160,32,0.55);
-    }
-    .btn-link:hover{color:rgba(232,160,32,0.85);}
     /* film strip progress */
     .render-btn .film-progress{
       position:absolute;bottom:0;left:0;height:3px;
@@ -650,9 +496,7 @@
       background:rgba(30,26,20,0.65);color:#f4efe4;font:300 8px var(--mono);
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     }
-      .inline-checkbox{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mol-muted);cursor:pointer;}
-    .inline-checkbox input{width:auto; accent-color:var(--mol-mid);}
-</style>
+  </style>
 </head>
 <body>
 
@@ -737,54 +581,16 @@
             </div>
             <div style="display:flex; gap:8px;">
               <input type="text" id="valenpyno-input" style="flex:1; background:var(--mol-bg); border:1px solid rgba(255,255,255,0.1); color:var(--white); border-radius:6px; padding:10px 12px; font-family:var(--sans); font-size:13px; outline:none;" placeholder="Describe your video idea..." onkeydown="if(event.key==='Enter') sendValenpyno()">
-              <button type="button" id="valenpyno-send-btn" class="btn-secondary" onclick="sendValenpyno()">Send</button>
+              <button type="button" id="valenpyno-send-btn" onclick="sendValenpyno()" style="background:var(--sakura); border:none; color:#111; padding:0 16px; border-radius:6px; font-weight:500; cursor:pointer;">Send</button>
             </div>
             <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center;">
               <span id="valenpyno-status" style="font-size:11px; color:var(--mol-muted); font-family:var(--sans);"></span>
-              <button type="button" class="btn-ghost" onclick="applyValenpyno()">Apply to Studio Fields →</button>
+              <button type="button" onclick="applyValenpyno()" style="background:transparent; border:1px solid rgba(249,168,201,0.5); color:#f9a8c9; padding:6px 14px; border-radius:6px; font-size:12px; cursor:pointer; font-family:var(--sans); transition:all 0.2s;">Apply to Studio Fields →</button>
             </div>
           </div>
         </div>
 
       </div>
-
-      <!-- Interactive Timeline -->
-      <div class="mol-section">
-        <div class="mol-eyebrow">Storyboard timeline</div>
-        <div class="timeline-container" id="storyboard-timeline">
-        <div class="timeline-header">
-          <span>Storyboard Timeline</span>
-          <div style="display:flex; gap: 8px;">
-            <button type="button" class="btn-timeline" id="timeline-gen-btn">Generate Draft</button>
-          </div>
-        </div>
-        <div class="timeline-track-wrap">
-          <div class="timeline-empty" id="timeline-empty-state">
-            Write your story and click "Generate Draft" to build the timeline...
-          </div>
-          <div class="timeline-track" id="timeline-track-items" style="display:none;">
-            <!-- Example Frames -->
-            <div class="timeline-frame active">
-              <div class="frame-number">1</div>
-              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Wide shot: A bustling cyber city.</div>
-              <div class="frame-action">Preview</div>
-            </div>
-            <div class="timeline-frame">
-              <div class="frame-number">2</div>
-              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Close-up: Neon lights reflecting in a puddle.</div>
-              <div class="frame-action">Preview</div>
-            </div>
-            <div class="timeline-frame">
-              <div class="frame-number">3</div>
-              <div style="font-size: 11px; padding: 10px; color: var(--mol-muted); text-align:center;">Medium: A figure walking in the rain.</div>
-              <div class="frame-action">Preview</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>
-      <!-- End Timeline -->
-
 
       <div class="mol-section">
         <div class="file-upload-wrap">
@@ -802,6 +608,82 @@
         </div>
         <div id="ref-preview" class="ref-preview"></div>
       </div>
+
+      <div class="mol-section">
+        <div class="mol-divider">
+          <span class="mol-divider-label">Output</span>
+          <span class="mol-divider-line"></span>
+        </div>
+        <div class="footnotes">
+          <div class="footnote">
+            <span class="fn-label">Aspect</span>
+            <select class="fn-select" id="aspect-ratio" onchange="refreshQuote()">
+              <option value="16:9">16:9 widescreen</option>
+              <option value="9:16">9:16 vertical</option>
+              <option value="1:1">1:1 square</option>
+              <option value="4:5">4:5 portrait</option>
+            </select>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Resolution</span>
+            <select class="fn-select" id="resolution" onchange="refreshQuote()">
+              <option value="720p">720p</option>
+              <option value="1080p" selected>1080p</option>
+              <option value="4k">4k</option>
+            </select>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Style</span>
+            <select class="fn-select" id="style-preset" onchange="refreshQuote()">
+              <option value="Cinematic realism">Cinematic realism</option>
+              <option value="Documentary urgency">Documentary urgency</option>
+              <option value="Painterly editorial">Painterly editorial</option>
+              <option value="Commercial polish">Commercial polish</option>
+            </select>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Duration (s)</span>
+            <input class="fn-input" id="target-duration" type="number" min="8" max="180" value="30" onchange="refreshQuote()">
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Voice</span>
+            <select class="fn-select" id="voice-model" onchange="refreshQuote()"></select>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Narration</span>
+            <div class="fn-checkbox-row">
+              <input type="checkbox" id="narration-enabled" onchange="refreshQuote()">
+              <span>Enable</span>
+            </div>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Music</span>
+            <div class="fn-checkbox-row">
+              <input type="checkbox" id="music-enabled" onchange="refreshQuote()">
+              <span>Enable</span>
+            </div>
+          </div>
+          <div class="footnote">
+            <span class="fn-label">Music style</span>
+            <select class="fn-select" id="music-style" onchange="applyMusicStyle()">
+              <option value="">Auto (planner decides)</option>
+              <option value="cinematic instrumental underscore, gentle, atmospheric">Cinematic underscore</option>
+              <option value="epic orchestral trailer music, heroic, dramatic">Epic orchestral</option>
+              <option value="upbeat electronic pop, bright, driving">Upbeat electronic</option>
+              <option value="lo-fi hip hop, chill, warm, relaxed">Lo-fi chill</option>
+              <option value="ambient piano, sparse, emotional, intimate">Ambient piano</option>
+              <option value="tension drone, dark, suspenseful, minimal">Tension drone</option>
+              <option value="acoustic folk, warm, organic, hopeful">Acoustic folk</option>
+              <option value="retro synthwave, neon, pulsing, 80s">Synthwave</option>
+            </select>
+          </div>
+          <div class="footnote" style="flex-basis:100%;">
+            <span class="fn-label">Music prompt</span>
+            <input class="fn-input" id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)" style="width:100%;">
+          </div>
+        </div>
+      </div>
+
 
       <div class="mol-section" id="gallery-section">
         <div class="mol-divider">
@@ -829,99 +711,11 @@
         <div style="font:300 9px var(--mono);color:var(--mol-ghost);letter-spacing:0.08em;">Flowdaptor · ByteDance models</div>
       </div>
 
-    
-
-
     </div>
 
     <!-- RIGHT: ACCUPHASE -->
     <div class="amplifier">
 
-<div class="fascia">
-        <div class="fascia-label">Output settings</div>
-        <div class="footnotes" style="display:flex; flex-direction:column; gap:16px;">
-          <div class="settings-row" style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
-            <div class="footnote" style="min-width:120px;">
-              <span class="fn-label">Duration</span>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <input class="fn-input" id="target-duration" type="number" min="8" max="180" value="30" onchange="refreshQuote()" style="width:70px;">
-                <label class="inline-checkbox" title="Planner picks duration from story length" style="display:flex; align-items:center; gap:6px; font:300 12px var(--sans); color:var(--mol-muted); white-space:nowrap; cursor:pointer;">
-                  <input type="checkbox" id="smart-duration" onchange="toggleSmartDuration(); refreshQuote()">
-                  <span>Smart</span>
-                </label>
-              </div>
-            </div>
-            <div class="footnote">
-              <span class="fn-label">Aspect</span>
-              <select class="fn-select" id="aspect-ratio" onchange="refreshQuote()">
-                <option value="16:9">16:9 widescreen</option>
-                <option value="9:16">9:16 vertical</option>
-                <option value="1:1">1:1 square</option>
-                <option value="4:5">4:5 portrait</option>
-              </select>
-            </div>
-            <div class="footnote">
-              <span class="fn-label">Resolution</span>
-              <select class="fn-select" id="resolution" onchange="refreshQuote()">
-                <option value="720p">720p</option>
-                <option value="1080p" selected>1080p</option>
-                <option value="4k">4k</option>
-              </select>
-            </div>
-            <div class="footnote">
-              <span class="fn-label">Style</span>
-              <select class="fn-select" id="style-preset" onchange="refreshQuote()">
-                <option value="Cinematic realism">Cinematic realism</option>
-                <option value="Documentary urgency">Documentary urgency</option>
-                <option value="Painterly editorial">Painterly editorial</option>
-                <option value="Commercial polish">Commercial polish</option>
-              </select>
-            </div>
-          </div>
-          <div class="settings-row" style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
-            <div class="footnote">
-              <span class="fn-label">Voice</span>
-              <select class="fn-select" id="voice-model" onchange="refreshQuote()"></select>
-            </div>
-            <div class="footnote">
-              <span class="fn-label">Narration</span>
-              <div class="fn-checkbox-row">
-                <input type="checkbox" id="narration-enabled" onchange="refreshQuote()">
-                <span>Enable</span>
-              </div>
-            </div>
-          </div>
-          <div class="settings-row" style="display:flex; flex-wrap:wrap; gap:16px; align-items:flex-end;">
-            <div class="footnote">
-              <span class="fn-label">Music</span>
-              <div class="fn-checkbox-row">
-                <input type="checkbox" id="music-enabled" onchange="refreshQuote()">
-                <span>Enable</span>
-              </div>
-            </div>
-            <div class="footnote">
-              <span class="fn-label">Music style</span>
-              <select class="fn-select" id="music-style" onchange="applyMusicStyle()">
-                <option value="">Auto (planner decides)</option>
-                <option value="cinematic instrumental underscore, gentle, atmospheric">Cinematic underscore</option>
-                <option value="epic orchestral trailer music, heroic, dramatic">Epic orchestral</option>
-                <option value="upbeat electronic pop, bright, driving">Upbeat electronic</option>
-                <option value="lo-fi hip hop, chill, warm, relaxed">Lo-fi chill</option>
-                <option value="ambient piano, sparse, emotional, intimate">Ambient piano</option>
-                <option value="tension drone, dark, suspenseful, minimal">Tension drone</option>
-                <option value="acoustic folk, warm, organic, hopeful">Acoustic folk</option>
-                <option value="retro synthwave, neon, pulsing, 80s">Synthwave</option>
-              </select>
-            </div>
-            <div class="footnote" style="flex:1; min-width:200px;">
-              <span class="fn-label">Music prompt</span>
-              <input class="fn-input" id="music-prompt" type="text" maxlength="450" placeholder="auto (planner decides)" style="width:100%;">
-            </div>
-          </div>
-        </div>
-
-
-      
       <!-- Model selector bank -->
       <div class="fascia">
         <div class="fascia-label">Planner model</div>
@@ -1088,15 +882,14 @@
             <div class="film-frame" id="film-frames"></div>
             <span id="film-count-label" style="font:300 9px var(--mono);color:rgba(232,160,32,0.3);letter-spacing:0.1em;">0 renders</span>
           </div>
-          <button class="btn-link" onclick="refreshQuote()">↺ Recalculate</button>
+          <button onclick="refreshQuote()" style="font:300 9px var(--mono);letter-spacing:0.1em;text-transform:uppercase;background:transparent;border:none;color:rgba(232,160,32,0.35);cursor:pointer;padding:4px;">↺ Recalculate</button>
         </div>
       </div>
 
     </div>
   </div>
-</div>
 
-<!-- ══ JOURNAL PANEL ══ -->
+  <!-- ══ JOURNAL PANEL ══ -->
   <div class="desk" id="panel-journal" style="display:none;">
     <div class="moleskine" style="grid-column:1/-1;">
       <div class="mol-section">
@@ -1269,7 +1062,7 @@
         aspect_ratio:  document.getElementById('aspect-ratio').value,
         resolution:    document.getElementById('resolution').value,
         style_preset:  document.getElementById('style-preset').value,
-        target_duration: document.getElementById('smart-duration').checked ? null : Number(document.getElementById('target-duration').value),
+        target_duration: Number(document.getElementById('target-duration').value),
         voice_model:   document.getElementById('voice-model').value,
         narration_enabled: document.getElementById('narration-enabled').checked,
         planner_temperature:   Number(document.getElementById('planner-temperature').value),
@@ -1326,13 +1119,7 @@
         if (cfg.aspect_ratio)    document.getElementById('aspect-ratio').value = cfg.aspect_ratio;
         if (cfg.resolution)      document.getElementById('resolution').value = cfg.resolution;
         if (cfg.style_preset)    document.getElementById('style-preset').value = cfg.style_preset;
-        if (cfg.target_duration) {
-          document.getElementById('target-duration').value = cfg.target_duration;
-          document.getElementById('smart-duration').checked = false;
-        } else if (cfg.target_duration === null || cfg.target_duration === 0) {
-          document.getElementById('smart-duration').checked = true;
-        }
-        toggleSmartDuration();
+        if (cfg.target_duration) document.getElementById('target-duration').value = cfg.target_duration;
         if (cfg.voice_model)     document.getElementById('voice-model').value = cfg.voice_model;
         document.getElementById('narration-enabled').checked = !!cfg.narration_enabled;
         document.getElementById('music-enabled').checked = !!cfg.music_enabled;
@@ -1371,21 +1158,6 @@
 
     function showFlash(k,m){var e=document.getElementById('flash');e.className=k;e.textContent=m;window.scrollTo(0,0);}
     function clearFlash(){var e=document.getElementById('flash');e.className='hidden';e.textContent='';}
-
-    function toggleSmartDuration(){
-      var smart = document.getElementById('smart-duration').checked;
-      var dur = document.getElementById('target-duration');
-      if(smart){
-        dur.dataset.lastValue = dur.value;
-        dur.value = '';
-        dur.style.opacity = '0.4';
-        dur.disabled = true;
-      }else{
-        dur.value = dur.dataset.lastValue || '30';
-        dur.style.opacity = '1';
-        dur.disabled = false;
-      }
-    }
 
     function applyMusicStyle(){
       var sel = document.getElementById('music-style');
@@ -1464,7 +1236,7 @@
       try{
         var q=await jsonFetch('/api/quote',{method:'POST',body:JSON.stringify(getJobConfig())});
         document.getElementById('quote-value').textContent=q.estimated_credits.toFixed(1)+' cr';
-        document.getElementById('quote-meta').textContent='';
+        document.getElementById('quote-meta').textContent=q.provider;
       }catch(e){}
     }
 
@@ -1673,9 +1445,6 @@
         applySession(s);
         await refreshJobs();
         await refreshQuote();
-        // If server asked to open a specific panel (e.g. /journal route), switch to it.
-        var openPanel = {{ (open_panel or "") | tojson }};
-        if (openPanel) showPanel(openPanel);
       }catch(err){
         // Backend unreachable (static preview) — render a demo studio instead of a blank redirect.
         enterDemo();
@@ -1786,69 +1555,6 @@
       setInputMode('text');
       updateWordCount();
     }
-
-
-// Real Timeline JS with AI Singapore Integration
-document.addEventListener("DOMContentLoaded", () => {
-  const genBtn = document.getElementById("timeline-gen-btn");
-  const emptyState = document.getElementById("timeline-empty-state");
-  const trackItems = document.getElementById("timeline-track-items");
-  
-  if (genBtn) {
-    genBtn.addEventListener("click", () => {
-      const storyText = document.getElementById("story-text").value.trim();
-      if (!storyText) {
-        alert("Please write your story first.");
-        return;
-      }
-      
-      genBtn.textContent = "Generating...";
-      emptyState.style.display = "block";
-      emptyState.textContent = "AI Singapore is drafting the storyboard...";
-      trackItems.style.display = "none";
-      
-      fetch("/api/timeline/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storyText: storyText })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error);
-        const frames = data.frames || data;
-        trackItems.innerHTML = "";
-        frames.forEach((frame, idx) => {
-          const fDiv = document.createElement("div");
-          fDiv.className = "timeline-frame";
-          if (idx === 0) fDiv.classList.add("active");
-          fDiv.innerHTML = `
-            <div class="frame-number">${frame.scene_number || (idx + 1)}</div>
-            <div style="padding: 10px; display: flex; flex-direction: column; gap: 6px; flex: 1;">
-              <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Visual Prompt & Action</label>
-              <textarea style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); flex: 1; min-height: 80px;" rows="4">${frame.action}: ${frame.visual}</textarea>
-            </div>
-            <div class="frame-voice" style="padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px;">
-              <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Voice Narration</label>
-              <textarea placeholder="Narration / Dialogue..." style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
-            </div>
-            <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
-              <button type="button" class="btn-secondary">Render Shot</button>
-            </div>
-          `;
-          trackItems.appendChild(fDiv);
-        });
-        emptyState.style.display = "none";
-        trackItems.style.display = "grid";
-        genBtn.textContent = "Regenerate Draft";
-      })
-      .catch(err => {
-        console.error("Timeline generation error:", err);
-        emptyState.textContent = "Error parsing response. Please try again.";
-        genBtn.textContent = "Generate Draft";
-      });
-    });
-  }
-});
 
 </script>
 </body>
