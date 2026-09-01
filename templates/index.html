@@ -1540,10 +1540,13 @@
       if(u.is_admin)show("admin-panel");else hide("admin-panel");
     }
     function badge(s){var m={completed:"badge-ok",running:"badge-run",queued:"badge-run",failed:"badge-err"};return'<span class="badge '+(m[s]||"badge-dim")+'">'+s+'</span>';}
+    async function deleteJob(jobId){
+      if(!confirm('Delete this project permanently?'))return;
+      try{var r=await fetch('/api/jobs/'+jobId,{method:'DELETE'});var d={};try{d=await r.json();}catch(_){}if(!r.ok)throw new Error(d.error||'Delete failed.');state.jobs=state.jobs.filter(function(j){return j.id!==jobId;});renderJobs();}catch(err){showFlash('error',err.message);}}
     function renderJobs(){
       var tb=document.getElementById("jobs-table");
       if(!state.jobs.length){tb.innerHTML='<tr><td colspan="6" class="muted">No renders yet. Start your first project above.</td></tr>';return;}
-      tb.innerHTML=state.jobs.map(function(j){return'<tr><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'</td><td><a href="'+j.download_url+'">'+j.output_kind.toUpperCase()+'</a></td></tr>';}).join("");
+      tb.innerHTML=state.jobs.map(function(j){return'<tr data-job-id="'+j.id+'"><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'</td><td><div class="job-actions">'+(j.status==='completed'?'<a class="job-btn job-dl" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="job-status muted">'+j.status+'</span>')+'<button class="job-btn job-edit" type="button" onclick="window.location.href=\'/studio\'">✎ Edit</button><button class="job-btn job-delete" type="button" onclick="deleteJob(\\\''+j.id+'\\\')">Delete</button></div></td></tr>';}).join("");
     }
     function renderAdmin(){
       if(!state.admin)return;
