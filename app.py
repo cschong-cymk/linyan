@@ -2772,7 +2772,7 @@ def delete_job(job_id):
     if not row:
         return jsonify({"error": "Job not found."}), 404
 
-    # Remove associated files
+    # Remove associated files and generated shot clips
     paths = [
         row["storyboard_path"],
         row["render_plan_path"],
@@ -2784,6 +2784,11 @@ def delete_job(job_id):
                 Path(p).unlink(missing_ok=True)
             except OSError:
                 pass
+    try:
+        for shot in OUTPUT_DIR.glob(f"{job_id}-shot-*"):
+            shot.unlink(missing_ok=True)
+    except OSError:
+        pass
 
     # Remove character reference images tied to this job
     try:
