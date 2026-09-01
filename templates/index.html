@@ -451,7 +451,13 @@
       background:transparent; border:1px solid var(--line2); color:var(--muted);
     }
     .btn-ghost:hover { background:var(--lift); color:var(--ink); border-color:var(--muted); }
+    .btn-danger {
+      background:transparent; border:1px solid rgba(252,165,165,0.45); color:var(--danger);
+    }
+    .btn-danger:hover { background:rgba(252,165,165,0.1); border-color:rgba(252,165,165,0.65); color:#ff6b6b; }
     .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; }
+    .job-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .job-actions .btn { padding:6px 11px; font-size:10px; letter-spacing:0.1em; }
 
     /* ── quote bar ── */
     .quote-bar {
@@ -1546,7 +1552,7 @@
     function renderJobs(){
       var tb=document.getElementById("jobs-table");
       if(!state.jobs.length){tb.innerHTML='<tr><td colspan="6" class="muted">No renders yet. Start your first project above.</td></tr>';return;}
-      tb.innerHTML=state.jobs.map(function(j){return'<tr data-job-id="'+j.id+'"><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'</td><td><div class="job-actions">'+(j.status==='completed'?'<a class="job-btn job-dl" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="job-status muted">'+j.status+'</span>')+'<button class="job-btn job-edit" type="button" onclick="window.location.href=\'/studio\'">✎ Edit</button><button class="job-btn job-delete" type="button" onclick="deleteJob(\\\''+j.id+'\\\')">Delete</button></div></td></tr>';}).join("");
+      tb.innerHTML=state.jobs.map(function(j){return'<tr data-job-id="'+j.id+'"><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'<div class="job-actions">'+(j.status==='completed'?'<a class="btn btn-primary" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="job-status muted">'+j.status+'</span>')+'<button class="btn btn-ghost" type="button" onclick="window.location.href=\'\/studio\'">✎ Edit</button><button class="btn btn-danger" type="button" onclick="deleteJob(\\\''+j.id+'\\\')">Delete</button></div></td></tr>';}).join("");
     }
     function renderAdmin(){
       if(!state.admin)return;

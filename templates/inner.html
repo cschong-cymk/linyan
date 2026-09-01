@@ -348,18 +348,8 @@
     .je-dot.ok{background:var(--ok);}
     .je-dot.run{background:var(--acc-amber);}
     .je-dot.err{background:var(--danger);}
-    .je-dl{font:300 10px var(--mono);letter-spacing:0.1em;color:var(--mol-muted);text-decoration:none;}
     .je-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-    .je-btn{font:300 11px var(--sans);letter-spacing:0.04em;color:var(--mol-mid);background:linear-gradient(180deg,var(--layer) 0%,#0d0d0d 100%);border:1px solid var(--mol-line);border-radius:6px;cursor:pointer;padding:6px 10px;text-decoration:none;transition:all .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.4);}
-    .je-btn:hover{color:var(--mol-bright);border-color:var(--mol-muted);background:linear-gradient(180deg,#181818 0%,#111 100%);}
-    .je-btn-edit{color:var(--acc-amber-dim);border-color:#3a2f18;}
-    .je-btn-edit:hover{color:var(--acc-amber);border-color:var(--acc-amber-dim);background:linear-gradient(180deg,#1f180d 0%,#15120a 100%);}
-    .je-btn-delete{color:var(--danger);border-color:#4a1f1f;}
-    .je-btn-delete:hover{color:#ff6b6b;border-color:#7a2f2f;background:linear-gradient(180deg,#261414 0%,#1a0d0d 100%);}
-    .je-dl{font:300 11px var(--mono);letter-spacing:0.04em;color:var(--mol-muted);text-decoration:none;padding:6px 10px;border:1px solid var(--mol-line);border-radius:6px;background:linear-gradient(180deg,var(--layer) 0%,#0d0d0d 100%);}
-    .je-dl:hover{color:var(--mol-bright);border-color:var(--mol-muted);}
-    .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);}
-    .je-dl:hover{color:var(--mol-mid);}
+    .je-actions .btn{font:400 10px var(--mono);letter-spacing:0.12em;text-transform:uppercase;padding:7px 12px;border-radius:3px;}
     .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);}
 
     /* ══ RIGHT — ACCUPHASE UNIT ══ */
@@ -1511,11 +1501,10 @@
             '<div class="je-dot '+dotCls+'"></div>'+
             '<span class="je-credits">'+j.estimated_credits.toFixed(1)+' cr</span>'+
             '<div class="je-actions">'+
-              (j.status==='completed'?'<a class="je-btn je-dl" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="je-credits muted">'+j.status+'</span>')+
-              '<button class="je-btn je-btn-edit" type="button" onclick="reloadJobForEdit(\\\''+j.id+'\\\')" title="Reload this job\u2019s storyboard and settings to edit and resubmit">✎ Edit</button>'+
-              '<button class="je-btn je-btn-delete" type="button" onclick="deleteJob(\\\''+j.id+'\\\')" title="Delete this project permanently">Delete</button>'+
+              (j.status==='completed'?'<a class="btn btn-secondary" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="je-credits muted">'+j.status+'</span>')+
+              '<button class="btn btn-ghost" type="button" onclick="reloadJobForEdit(\''+j.id+'\')" title="Reload this job’s storyboard and settings to edit and resubmit">✎ Edit</button>'+
+              '<button class="btn btn-danger" type="button" onclick="deleteJob(\''+j.id+'\')" title="Delete this project permanently">Delete</button>'+
             '</div>'+
-          '</div>'+
           '</div>';
       }).join('');
     }
