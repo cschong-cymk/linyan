@@ -335,22 +335,27 @@
 
     /* journal — job history */
     .journal-entry{
-      display:grid;grid-template-columns:72px 1fr auto;
+      display:grid;grid-template-columns:72px minmax(0,1fr) auto;
       gap:16px;align-items:baseline;
       padding:10px 0;border-bottom:1px solid var(--mol-line);
     }
     .journal-entry:last-child{border-bottom:none;}
     .je-date{font:300 10px var(--mono);color:var(--mol-ghost);letter-spacing:0.06em;}
-    .je-title{font-family:var(--serif);font-size:14px;color:var(--mol-ink);}
-    .je-sub{font:300 11px var(--mono);color:var(--mol-ghost);}
-    .je-status{display:flex;align-items:center;gap:8px;}
+    .je-title{font-family:var(--serif);font-size:14px;color:var(--mol-ink);min-width:0;}
+    .je-sub{font:300 11px var(--mono);color:var(--mol-ghost);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .je-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
     .je-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
     .je-dot.ok{background:var(--ok);}
     .je-dot.run{background:var(--acc-amber);}
     .je-dot.err{background:var(--danger);}
     .je-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
     .je-actions .btn{font:400 10px var(--mono);letter-spacing:0.12em;text-transform:uppercase;padding:7px 12px;border-radius:3px;}
-    .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);}
+    .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);white-space:nowrap;}
+    @media (max-width: 640px){
+      .journal-entry{grid-template-columns:1fr;gap:6px;align-items:stretch;}
+      .je-date{order:2;}
+      .je-status{justify-content:flex-start;order:3;}
+    }
 
     /* ══ RIGHT — ACCUPHASE UNIT ══ */
     .amplifier{
@@ -490,6 +495,13 @@
       color:#f9a8c9;
     }
     .btn-ghost:hover{background:rgba(249,168,201,0.12);border-color:rgba(249,168,201,0.7);}
+    .btn-danger{
+      padding:8px 14px;
+      background:transparent;
+      border:1px solid rgba(148,48,32,0.65);
+      color:#fca5a5;
+    }
+    .btn-danger:hover{background:rgba(148,48,32,0.15);border-color:rgba(148,48,32,0.85);color:#ff9e9e;}
     .btn-link{
       padding:4px 0;
       background:transparent;border:none;

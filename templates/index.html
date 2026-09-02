@@ -438,19 +438,20 @@
       cursor:pointer; transition:all 0.18s; white-space:nowrap;
     }
     .btn-primary {
-      background: linear-gradient(120deg, var(--violet), var(--mauve));
-      color: #fff;
-      box-shadow: 0 0 20px rgba(167,139,250,0.25);
+      background: linear-gradient(180deg, #c84820, #a03818);
+      color: #f4e8d8;
+      box-shadow: 0 2px 8px rgba(200,72,32,0.3), inset 0 1px 0 rgba(255,200,160,0.2);
     }
     .btn-primary:hover {
-      box-shadow: 0 0 32px rgba(167,139,250,0.4);
+      background: linear-gradient(180deg, #e05028, #b84020);
+      box-shadow: 0 2px 14px rgba(200,72,32,0.45), inset 0 1px 0 rgba(255,200,160,0.25);
       transform: translateY(-1px);
     }
-    .btn-primary:disabled { opacity:0.38; cursor:not-allowed; transform:none; box-shadow:none; }
+    .btn-primary:disabled { opacity:0.4; cursor:not-allowed; transform:none; box-shadow:none; }
     .btn-ghost {
-      background:transparent; border:1px solid var(--line2); color:var(--muted);
+      background:transparent; border:1px solid rgba(249,168,201,0.5); color:#f9a8c9;
     }
-    .btn-ghost:hover { background:var(--lift); color:var(--ink); border-color:var(--muted); }
+    .btn-ghost:hover { background:rgba(249,168,201,0.12); color:#fbd0e4; border-color:rgba(249,168,201,0.7); }
     .btn-danger {
       background:transparent; border:1px solid rgba(252,165,165,0.45); color:var(--danger);
     }
@@ -629,21 +630,21 @@
     .shell .stat-val { color: #f2eef8; }
     .shell .stat-val.accent { color: #a78bfa; }
     .shell .btn-primary {
-      background: linear-gradient(135deg, #a78bfa, #8b6df0) !important;
-      color: #ffffff !important;
-      box-shadow: 0 4px 14px rgba(139,109,240,0.35) !important;
+      background: linear-gradient(180deg, #c84820, #a03818) !important;
+      color: #f4e8d8 !important;
+      box-shadow: 0 2px 8px rgba(200,72,32,0.3), inset 0 1px 0 rgba(255,200,160,0.2) !important;
     }
-    .shell .btn-primary:hover { background: linear-gradient(135deg, #b9a3fb, #9d80f4) !important; transform: translateY(-1px); }
-    .shell .btn-ghost { border-color: rgba(200,170,220,0.22); color: #c8bce0; }
-    .shell .btn-ghost:hover { background: rgba(200,170,220,0.08); color: #f2eef8; }
+    .shell .btn-primary:hover { background: linear-gradient(180deg, #e05028, #b84020) !important; box-shadow: 0 2px 14px rgba(200,72,32,0.45), inset 0 1px 0 rgba(255,200,160,0.25) !important; transform: translateY(-1px); }
+    .shell .btn-ghost { border-color: rgba(249,168,201,0.5); color: #f9a8c9; }
+    .shell .btn-ghost:hover { background: rgba(249,168,201,0.12); color: #fbd0e4; }
     .shell .quote-bar {
       background: #201c30 !important;
       border: 1px solid rgba(200,170,220,0.18) !important;
     }
     .shell .quote-amount {
       background: none !important;
-      -webkit-text-fill-color: #a78bfa !important;
-      color: #a78bfa !important;
+      -webkit-text-fill-color: #e8a020 !important;
+      color: #e8a020 !important;
     }
     .shell .quote-label { color: #9080b0; }
     .shell .quote-meta  { color: #9080b0; }
@@ -1538,7 +1539,7 @@
     function renderSessionPanels(){
       var u=state.session.user;
       if(!u){show("auth-panel");hide("workspace-panel");hide("job-panel");hide("jobs-panel");hide("admin-panel");return;}
-      hide("auth-panel");show("workspace-panel");show("job-panel");show("jobs-panel");
+      hide("auth-panel");show("workspace-panel");show("job-panel");
       setText("workspace-title",u.display_name);setText("workspace-subtitle",u.email);
       setText("balance-stat",u.credit_balance.toFixed(1)+" "+state.session.settings.credit_label);
       setText("role-stat",u.is_admin?"Host admin":"Studio user");
@@ -1552,7 +1553,7 @@
     function renderJobs(){
       var tb=document.getElementById("jobs-table");
       if(!state.jobs.length){tb.innerHTML='<tr><td colspan="6" class="muted">No renders yet. Start your first project above.</td></tr>';return;}
-      tb.innerHTML=state.jobs.map(function(j){return'<tr data-job-id="'+j.id+'"><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'<div class="job-actions">'+(j.status==='completed'?'<a class="btn btn-primary" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="job-status muted">'+j.status+'</span>')+'<button class="btn btn-ghost" type="button" onclick="window.location.href=\'\/studio\'">✎ Edit</button><button class="btn btn-danger" type="button" onclick="deleteJob(\\\''+j.id+'\\\')">Delete</button></div></td></tr>';}).join("");
+      tb.innerHTML=state.jobs.map(function(j){return'<tr data-job-id="'+j.id+'"><td><strong>'+j.title+'</strong><br><span class="muted small">'+j.id+'</span></td><td><span class="small">'+j.planner_model.split("/").pop()+'</span><br><span class="muted small">'+j.video_model.split("/").pop()+'</span></td><td>'+badge(j.status)+'</td><td class="small">'+j.estimated_credits.toFixed(1)+'</td><td class="small muted">'+new Date(j.created_at).toLocaleString()+'<div class="job-actions">'+(j.status==='completed'?'<a class="btn btn-primary" href="'+j.download_url+'">↓ '+j.output_kind.toUpperCase()+'</a>':'<span class="job-status muted">'+j.status+'</span>')+'<button class="btn btn-ghost" type="button" onclick="window.location.href=\'\/studio\'">✎ Edit</button><button class="btn btn-danger" type="button" onclick="deleteJob(\''+j.id+'\')">Delete</button></div></td></tr>';}).join("");
     }
     function renderAdmin(){
       if(!state.admin)return;
