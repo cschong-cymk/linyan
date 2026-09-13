@@ -48,6 +48,14 @@ DATABASE_URL = os.environ.get(
 ARK_API_KEY = os.environ.get("ARK_API_KEY")
 ARK_API_BASE = os.environ.get("ARK_API_BASE", "https://ark.ap-southeast.bytepluses.com/api/v3")
 
+# Zhipu GLM (alternative fast planner)
+GLM_API_KEY = os.environ.get("GLM_API_KEY")
+GLM_API_BASE = os.environ.get("GLM_API_BASE", "https://api.aimlapi.com/v1").rstrip("/")
+
+# Minimax (Hailuo) video generation
+MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY")
+MINIMAX_API_BASE = os.environ.get("MINIMAX_API_BASE", "https://api.minimax.io").rstrip("/")
+
 # Google Gemini (used as an alternative planner)
 GOOGLE_GEMINI_API_KEY = os.environ.get("GOOGLE_GEMINI_OMNI_API_KEY")
 GOOGLE_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -133,6 +141,13 @@ MODEL_CATALOG = {
             "recommended": False,
             "summary": "Google Gemini planning. (Pricing: Input 0.075, Output 0.30)",
         },
+        {
+            "id": "zhipu/glm-5.2",
+            "label": "GLM 5.2",
+            "family": "glm",
+            "recommended": False,
+            "summary": "Zhipu GLM 5.2 via AIML API for storyboard planning.",
+        },
     ],
     "video_models": [
         {
@@ -149,6 +164,14 @@ MODEL_CATALOG = {
             "provider": "ark",
             "cost_factor": 0.5,
             "summary": "720p. Rapid prototyping and draft iterations.",
+        },
+        {
+            "id": "MiniMax-H3",
+            "label": "MiniMax H3",
+            "provider": "minimax",
+            "cost_factor": 1.0,
+            "recommended": False,
+            "summary": "MiniMax H3 v2 video generation (text/image-to-video, up to 2K).",
         },
     ],
     "voice_models": [
@@ -384,6 +407,27 @@ def init_db():
         );
         """
     )
+    # Subplot history for the interactive storyboard timeline.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS timeline_subplots (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            story_hash TEXT NOT NULL,
+            scene_number TEXT NOT NULL,
+            action TEXT,
+            visual TEXT NOT NULL,
+            narration TEXT,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_timeline_subplots_lookup
+        ON timeline_subplots (user_id, story_hash, scene_number, created_at DESC);
+        """
+    )
     timestamp = now_iso()
     for key, value in DEFAULT_SETTINGS.items():
         cur.execute(
@@ -574,15 +618,16 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
         balance before rendering any shots, and to charge that real number —
         not the pre-planning guess — on success.
     """
-    SEEDANCE_USD_PER_SECOND = {
+    VIDEO_USD_PER_SECOND = {
         "dreamina-seedance-2-5-260628":      0.095,  # 0.68 RMB converted to USD
         "dreamina-seedance-2-0-fast-260128": 0.015,
+        "MiniMax-H3":                        0.12,   # placeholder — update to real Minimax rate
     }
     CREDITS_PER_USD = 100.0  # 1 credit = $0.01
 
     video_model = config["video_model"]
-    usd_per_second = SEEDANCE_USD_PER_SECOND.get(video_model, 0.075)
-    provider = "ark"
+    usd_per_second = VIDEO_USD_PER_SECOND.get(video_model, 0.075)
+    provider = _video_provider(video_model)
     margin = float(settings["margin_multiplier"])
 
     if character_count is None:
@@ -710,7 +755,7 @@ def _find_character(name, character_bible):
 _usage_ctx = threading.local()
 
 
-def record_provider_usage(config, duration, task_id, status, usage):
+def record_provider_usage(config, duration, task_id, status, usage, provider="ark"):
     """Persist one Ark task's reported usage. Best-effort bookkeeping:
     never raises — a failed insert must not fail a render that already
     succeeded (or add noise to one that failed)."""
@@ -725,11 +770,12 @@ def record_provider_usage(config, duration, task_id, status, usage):
                 job_id, kind, provider, model, task_id, status,
                 duration_seconds, resolution, completion_tokens, total_tokens, created_at
             )
-            VALUES (%s, %s, 'ark', %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 getattr(_usage_ctx, "job_id", None),
                 getattr(_usage_ctx, "kind", "shot"),
+                provider,
                 config["video_model"],
                 task_id,
                 status,
@@ -744,6 +790,118 @@ def record_provider_usage(config, duration, task_id, status, usage):
         conn.close()
     except Exception:
         pass
+
+
+def _video_provider(model_id):
+    """Return the provider slug (ark, minimax, ...) for a video model id."""
+    for m in MODEL_CATALOG.get("video_models", []):
+        if m["id"] == model_id:
+            return m.get("provider", "ark")
+    return "ark"
+
+
+def submit_and_poll_minimax_task(content, config, duration, timeout=None):
+    """
+    Submit/poll/download against the MiniMax Video Generation V2 API (H3).
+    content: Ark-style content array; the first text item becomes the prompt,
+             and any image_url items are attached as first_frame / reference.
+    Returns (video_bytes, None) on success, or (None, reason_string) on failure.
+    """
+    if not MINIMAX_API_KEY:
+        return None, "MINIMAX_API_KEY not set"
+
+    base = MINIMAX_API_BASE.rstrip("/")
+
+    # Convert Ark content array to MiniMax content array.
+    minimax_content = []
+    first_image_url = None
+    for item in content:
+        if item.get("type") == "text":
+            minimax_content.append({"type": "text", "text": item.get("text", "")})
+        elif item.get("type") == "image_url":
+            url = item.get("image_url", {}).get("url")
+            if url and not first_image_url:
+                first_image_url = url
+                minimax_content.append({"type": "image_url", "image_url": {"url": url}, "role": "first_frame"})
+            elif url:
+                minimax_content.append({"type": "image_url", "image_url": {"url": url}, "role": "reference_image"})
+
+    if not minimax_content:
+        return None, "No text/image content for MiniMax"
+
+    # Map resolution values to MiniMax H3 supported strings.
+    res_map = {"720p": "768P", "1080p": "768P", "4k": "2K"}
+    resolution = res_map.get(config.get("resolution"), "768P")
+    ratio = config.get("aspect_ratio", "16:9")
+
+    payload = {
+        "model": config["video_model"],
+        "content": minimax_content,
+        "resolution": resolution,
+        "duration": duration,
+        "ratio": ratio,
+    }
+
+    try:
+        req = urllib_request.Request(
+            f"{base}/v2/video_generation",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {MINIMAX_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            submit_data = json.loads(resp.read().decode("utf-8"))
+        task_id = submit_data.get("task_id") or submit_data.get("id")
+        if not task_id:
+            task_id = (submit_data.get("task") or {}).get("id")
+        if not task_id:
+            return None, f"No task_id in submit response: {submit_data}"
+    except urllib_error.HTTPError as exc:
+        try:
+            body = exc.read().decode("utf-8", errors="replace")[:800]
+        except Exception:
+            body = ""
+        return None, f"Submit HTTP {exc.code}: {exc.reason} {body}".strip()
+    except (urllib_error.URLError, json.JSONDecodeError) as exc:
+        return None, f"Submit error: {exc}"
+
+    poll_url = f"{base}/v2/query/video_generation/{task_id}"
+    poll_headers = {"Authorization": f"Bearer {MINIMAX_API_KEY}"}
+    deadline = time.monotonic() + (timeout or SHOT_POLL_TIMEOUT)
+
+    while time.monotonic() < deadline:
+        time.sleep(SHOT_POLL_INTERVAL)
+        try:
+            poll_req = urllib_request.Request(poll_url, headers=poll_headers, method="GET")
+            with urllib_request.urlopen(poll_req, timeout=15) as resp:
+                poll_data = json.loads(resp.read().decode("utf-8"))
+        except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError):
+            continue  # transient; keep polling
+
+        task = poll_data.get("task") or poll_data
+        status = (task.get("status") or "").lower()
+
+        if status in ("succeeded", "completed", "success"):
+            record_provider_usage(config, duration, task_id, status, task.get("usage"), provider="minimax")
+            video_url = (task.get("content") or {}).get("url")
+            if not video_url:
+                return None, "succeeded but no content.url in response"
+            try:
+                dl_req = urllib_request.Request(video_url, method="GET")
+                with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
+                    return dl_resp.read(), None
+            except (urllib_error.URLError, OSError) as exc:
+                return None, f"Download failed: {exc}"
+
+        elif status in ("failed", "cancelled", "expired", "error", "failure"):
+            record_provider_usage(config, duration, task_id, status, task.get("usage"), provider="minimax")
+            err = task.get("error") or {}
+            return None, f"Task {status}: {err.get('message', task.get('message', 'no details'))}"
+
+    return None, f"Timed out after {timeout or SHOT_POLL_TIMEOUT}s waiting for task {task_id}"
 
 
 def submit_and_poll_video_task(content, config, duration, timeout=None):
@@ -880,6 +1038,16 @@ def generate_character_reference_image(job_id, name, description, config):
     if not ARK_API_KEY or not PUBLIC_BASE_URL:
         return None
 
+    # Character reference clips are rendered through the proven Ark path.
+    # If the selected video model is from another provider, swap in a Seedance
+    # model just for the reference clip; the actual shots still use the user's
+    # chosen provider.
+    ref_config = config
+    if _video_provider(config.get("video_model", "")) != "ark":
+        ref_config = dict(config)
+        ref_config["video_model"] = "dreamina-seedance-2-5-260628"
+        ref_config["resolution"] = "1080p"
+
     reference_prompt = (
         "Character reference shot. Single subject standing still, facing the "
         "camera, centered in frame, full figure visible, neutral plain "
@@ -890,7 +1058,7 @@ def generate_character_reference_image(job_id, name, description, config):
 
     _usage_ctx.kind = "character_ref"
     try:
-        video_bytes, _reason = submit_and_poll_video_task(content, config, REFERENCE_CLIP_DURATION)
+        video_bytes, _reason = submit_and_poll_video_task(content, ref_config, REFERENCE_CLIP_DURATION)
     finally:
         _usage_ctx.kind = "shot"
     if video_bytes is None:
@@ -1169,76 +1337,11 @@ def lock_characters_into_prompt(base_prompt, characters_in_shot, character_bible
     return f"{character_clause} {base_prompt}".strip()
 
 
-def call_planner(storyboard_text, config):
+def _call_openai_compatible_planner(api_base, api_key, storyboard_text, config, target, max_shots):
     """
-    Call ModelArk (BytePlus Ark) chat completions to decompose a prose storyboard
-    into a list of structured shots with durations that sum to target_duration.
-
-    Reality check on character consistency: Seedance shots are independent API
-    calls — the model has no memory of any other shot (see the system prompt
-    below). So the planner does two things instead of one:
-      1. Builds a "character bible" — one exhaustive, named description per
-         character, written once. reference_image_url starts as None here on
-         purpose: generating that image costs real money (see
-         generate_character_reference_image), and this function has no idea
-         yet whether the caller can actually afford the job once that cost is
-         included. Populating it is run_job_async's job, after it has
-         confirmed the real cost against the user's balance — see
-         populate_character_reference_images.
-      2. Tags which characters appear in each shot, then `lock_characters_into_prompt`
-         deterministically re-injects the exact description into every shot's
-         prompt in code, not just via LLM instruction-following. This part
-         only needs the text description, so it doesn't have to wait for step 1
-         of run_job_async's post-planning sequence.
-    Asking the model nicely to "stay consistent" (the original behavior) does
-    not survive a 10-shot JSON completion in practice; forcing identical
-    wording in code does much better, and combining it with a real reference
-    image (once generated) better still.
-
-    Returns a dict:
-      {
-        "status": "ok" | "skipped" | "failed",
-        "message": str,
-        "characters": {
-            name: {"description": str, "reference_image_url": None}, ...
-        },
-        "shots": [
-          {
-            "index": int,                  # 1-based
-            "duration": int,                # 4-15s (Seedance constraint)
-            "characters_in_shot": [str, ...],
-            "prompt": str,                  # visual prompt, character block already locked in
-            "camera": str,                  # camera move / framing note
-            "narration": str                # VO line or "" if none
-          },
-          ...
-        ],
-        "plan_text": str           # raw JSON string for the plan file
-      }
+    Shared planner path for OpenAI-compatible chat endpoints (ModelArk, Zhipu GLM, etc.).
+    Decomposes prose storyboard into structured shots with a character bible.
     """
-    # Decide reasonable shot count from target duration.
-    # Seedance supports clips from 4-15 s. We prefer ~5 s clips for tighter control,
-    # allowing longer only when the planner decides a scene needs more breathing room.
-    target = config.get("target_duration")
-    if not target:
-        # Smart duration: derive from story length, ~3s per sentence, min 20s, cap 90s.
-        sentence_count = max(1, len([s for s in storyboard_text.replace("!", ".").replace("?", ".").split(".") if s.strip()]))
-        target = min(max(sentence_count * 3, 20), 90)
-    max_shots = max(1, target // 5)   # upper bound: one 5-second clip per slot
-
-    # Dispatch to Google Gemini for google-family planner models.
-    if config.get("planner_model") in ("gemini-omni-1-1-flash", "gemini-2.5-flash"):
-        return call_google_planner(storyboard_text, config, target, max_shots)
-
-    if not ARK_API_KEY:
-        return {
-            "status": "skipped",
-            "message": "ARK_API_KEY not configured.",
-            "characters": {},
-            "shots": [],
-            "plan_text": "",
-        }
-
     system_prompt = textwrap.dedent("""
         You are a professional video production planner working with a text-to-video
         model that has NO memory between shots — every shot is generated from scratch,
@@ -1305,10 +1408,10 @@ def call_planner(storyboard_text, config):
     }
     body = json.dumps(payload).encode("utf-8")
     req = urllib_request.Request(
-        f"{ARK_API_BASE}/chat/completions",
+        f"{api_base}/chat/completions",
         data=body,
         headers={
-            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
         method="POST",
@@ -1328,11 +1431,6 @@ def call_planner(storyboard_text, config):
                 continue
             character_bible[name] = {
                 "description": desc,
-                # Populated later by populate_character_reference_images, and
-                # only AFTER run_job_async has confirmed the real cost (which
-                # includes this generation) is something the user can actually
-                # afford. Generating it here, before that check, would spend
-                # real render money on jobs that fail the balance check anyway.
                 "reference_image_url": None,
             }
 
@@ -1340,13 +1438,10 @@ def call_planner(storyboard_text, config):
         if not shots:
             raise ValueError("Planner returned zero shots.")
 
-        # Validate, clamp, and lock the character bible into each shot's prompt.
-        # Locking only needs the text description, not the (not-yet-generated)
-        # image, so this doesn't need to wait for populate_character_reference_images.
         clean_shots = []
         for i, s in enumerate(shots):
             duration = int(s.get("duration", 5))
-            duration = max(4, min(15, duration))  # Seedance supports 4–15 s
+            duration = max(4, min(15, duration))
             characters_in_shot = [
                 str(n).strip() for n in s.get("characters_in_shot", []) if str(n).strip()
             ]
@@ -1369,8 +1464,7 @@ def call_planner(storyboard_text, config):
             "status": "ok",
             "message": (
                 f"Planner produced {len(clean_shots)} shots "
-                f"({len(character_bible)} character(s) identified for consistency "
-                f"locking; reference images generated separately once cost is confirmed)."
+                f"({len(character_bible)} character(s) identified for consistency locking)."
             ),
             "characters": character_bible,
             "shots": clean_shots,
@@ -1388,7 +1482,7 @@ def call_planner(storyboard_text, config):
     except (urllib_error.HTTPError, urllib_error.URLError) as exc:
         return {
             "status": "failed",
-            "message": f"ModelArk request failed: {exc}",
+            "message": f"Planner request failed: {exc}",
             "characters": {},
             "shots": [],
             "plan_text": "",
@@ -1403,6 +1497,29 @@ def call_planner(storyboard_text, config):
         }
 
 
+def call_planner(storyboard_text, config):
+    """
+    Dispatch to the configured planner: Google Gemini, Zhipu GLM, or ModelArk.
+    """
+    target = config.get("target_duration")
+    if not target:
+        sentence_count = max(1, len([s for s in storyboard_text.replace("!", ".").replace("?", ".").split(".") if s.strip()]))
+        target = min(max(sentence_count * 3, 20), 90)
+    max_shots = max(1, target // 5)
+
+    planner_model = config.get("planner_model", "")
+    if planner_model in ("gemini-omni-1-1-flash", "gemini-2.5-flash"):
+        return call_google_planner(storyboard_text, config, target, max_shots)
+
+    family = next((m.get("family") for m in MODEL_CATALOG["planner_models"] if m["id"] == planner_model), "ark")
+    if family == "glm" or planner_model.startswith("glm-"):
+        if not GLM_API_KEY:
+            return {"status": "skipped", "message": "GLM_API_KEY not configured.", "characters": {}, "shots": [], "plan_text": ""}
+        return _call_openai_compatible_planner(GLM_API_BASE, GLM_API_KEY, storyboard_text, config, target, max_shots)
+
+    if not ARK_API_KEY:
+        return {"status": "skipped", "message": "ARK_API_KEY not configured.", "characters": {}, "shots": [], "plan_text": ""}
+    return _call_openai_compatible_planner(ARK_API_BASE, ARK_API_KEY, storyboard_text, config, target, max_shots)
 def serialize_job(row):
     return {
         "id": row["id"],
@@ -1696,15 +1813,24 @@ def call_video_model(shot, config, clip_path, character_bible):
             content.append({"type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
-    video_bytes, reason = submit_and_poll_video_task(content, config, duration)
-    if video_bytes is None and attached_urls and _is_image_url_400(reason):
-        # A reference image couldn't be fetched by ModelArk — drop the images
-        # and retry once so the shot still renders with text-only consistency.
-        video_bytes, retry_reason = submit_and_poll_video_task(
-            [content[0]], config, duration
-        )
-        if video_bytes is None:
-            return False, f"{retry_reason} (after image_url retry; original: {reason})"
+    provider = _video_provider(config.get("video_model", ""))
+    if provider == "minimax":
+        first_frame_url = None
+        for item in content[1:]:
+            if item.get("type") == "image_url":
+                first_frame_url = item["image_url"]["url"]
+                break
+        video_bytes, reason = submit_and_poll_minimax_task(full_prompt, first_frame_url, config, duration)
+    else:
+        video_bytes, reason = submit_and_poll_video_task(content, config, duration)
+        if video_bytes is None and attached_urls and _is_image_url_400(reason):
+            # A reference image couldn't be fetched by ModelArk — drop the images
+            # and retry once so the shot still renders with text-only consistency.
+            video_bytes, retry_reason = submit_and_poll_video_task(
+                [content[0]], config, duration
+            )
+            if video_bytes is None:
+                return False, f"{retry_reason} (after image_url retry; original: {reason})"
     if video_bytes is None:
         return False, reason
     try:
@@ -2077,6 +2203,7 @@ def session_status():
             },
             "catalog": MODEL_CATALOG,
             "ark_ready": bool(ARK_API_KEY),
+            "minimax_ready": bool(MINIMAX_API_KEY),
             "billing": {
                 # Buy button shows only when there's a link to send people to.
                 "payment_link_enabled": bool(STRIPE_PAYMENT_LINK),
@@ -2663,6 +2790,136 @@ Story: {story_text}"""
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/timeline/substory", methods=["POST"])
+@login_required
+def timeline_substory():
+    """Expand a single storyboard panel into a richer sub-scene and persist it."""
+    payload = request.json or {}
+    scene_number = payload.get("scene_number")
+    action = (payload.get("action") or "").strip()
+    visual = (payload.get("visual") or "").strip()
+    narration = (payload.get("narration") or "").strip()
+    parent_story = (payload.get("parent_story") or "").strip()
+    story_hash = (payload.get("story_hash") or "").strip()
+
+    if not visual:
+        return jsonify({"error": "No panel visual provided."}), 400
+
+    model_id = "dola-seed-2-1-turbo-260628"  # Seed 2.1 Turbo
+
+    system_prompt = "You are a professional storyboard director."
+    user_prompt = f"""Expand the following storyboard scene into a richer, more detailed sub-scene.
+Output ONLY a JSON object with keys: "action" (short camera/movement phrase), "visual" (detailed shot description), and "narration" (voice-over dialog for this scene).
+Keep the same scene meaning but make it more vivid and specific.
+
+Original story context: {parent_story or 'N/A'}
+Scene {scene_number}: {action} - {visual}
+Current narration: {narration or 'N/A'}"""
+
+    req_payload = {
+        "model": model_id,
+        "temperature": 0.7,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    body = json.dumps(req_payload).encode("utf-8")
+    req = urllib_request.Request(
+        f"{ARK_API_BASE}/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib_request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_json = data["choices"][0]["message"]["content"].strip()
+        parsed = json.loads(raw_json)
+        result = {
+            "scene_number": scene_number,
+            "action": parsed.get("action", action),
+            "visual": parsed.get("visual", visual),
+            "narration": parsed.get("narration", narration),
+        }
+        # Persist so users can retrieve previously generated subplots later.
+        if story_hash:
+            db_execute(
+                """
+                INSERT INTO timeline_subplots
+                    (user_id, story_hash, scene_number, action, visual, narration, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    g.current_user["id"],
+                    story_hash,
+                    str(scene_number),
+                    result["action"],
+                    result["visual"],
+                    result["narration"],
+                    now_iso(),
+                ),
+                commit=True,
+            )
+            # Include the new row id in the response for frontend bookkeeping.
+            cur = db_execute(
+                """
+                SELECT id FROM timeline_subplots
+                WHERE user_id = %s AND story_hash = %s AND scene_number = %s
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (g.current_user["id"], story_hash, str(scene_number)),
+            )
+            row = cur.fetchone()
+            if row:
+                result["id"] = row["id"]
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/timeline/subplots", methods=["GET"])
+@login_required
+def list_timeline_subplots():
+    """Return previously generated subplots for a given story panel."""
+    story_hash = (request.args.get("story_hash") or "").strip()
+    scene_number = (request.args.get("scene_number") or "").strip()
+    if not story_hash:
+        return jsonify({"error": "story_hash is required."}), 400
+    if not scene_number:
+        return jsonify({"error": "scene_number is required."}), 400
+    cur = db_execute(
+        """
+        SELECT id, action, visual, narration, created_at
+        FROM timeline_subplots
+        WHERE user_id = %s AND story_hash = %s AND scene_number = %s
+        ORDER BY created_at DESC
+        """,
+        (g.current_user["id"], story_hash, scene_number),
+    )
+    rows = cur.fetchall()
+    return jsonify({
+        "subplots": [
+            {
+                "id": row["id"],
+                "action": row["action"],
+                "visual": row["visual"],
+                "narration": row["narration"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    })
 
 
 @app.route("/api/jobs", methods=["GET"])

@@ -335,26 +335,32 @@
 
     /* journal — job history */
     .journal-entry{
-      display:grid;grid-template-columns:72px minmax(0,1fr) auto;
+      display:grid;grid-template-columns:72px minmax(0,1fr) minmax(220px,max-content);
       gap:16px;align-items:baseline;
-      padding:10px 0;border-bottom:1px solid var(--mol-line);
+      padding:12px 0;border-bottom:1px solid var(--mol-line);
     }
     .journal-entry:last-child{border-bottom:none;}
-    .je-date{font:300 10px var(--mono);color:var(--mol-ghost);letter-spacing:0.06em;}
-    .je-title{font-family:var(--serif);font-size:14px;color:var(--mol-ink);min-width:0;}
+    .je-date{font:300 10px var(--mono);color:var(--mol-ghost);letter-spacing:0.06em;padding-top:2px;}
+    .je-main{min-width:0;display:flex;flex-direction:column;gap:2px;overflow:hidden;}
+    .je-title{font-family:var(--serif);font-size:14px;color:var(--mol-ink);line-height:1.35;word-break:break-word;}
     .je-sub{font:300 11px var(--mono);color:var(--mol-ghost);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    .je-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+    .je-status{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
     .je-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
     .je-dot.ok{background:var(--ok);}
     .je-dot.run{background:var(--acc-amber);}
     .je-dot.err{background:var(--danger);}
-    .je-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-    .je-actions .btn{font:400 10px var(--mono);letter-spacing:0.12em;text-transform:uppercase;padding:7px 12px;border-radius:3px;}
+    .je-actions{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;}
+    .je-actions .btn{font:400 10px var(--mono);letter-spacing:0.08em;text-transform:uppercase;padding:5px 9px;border-radius:3px;white-space:nowrap;}
     .je-credits{font:300 10px var(--mono);color:var(--mol-ghost);white-space:nowrap;}
-    @media (max-width: 640px){
-      .journal-entry{grid-template-columns:1fr;gap:6px;align-items:stretch;}
-      .je-date{order:2;}
-      .je-status{justify-content:flex-start;order:3;}
+    @media (max-width: 700px){
+      .journal-entry{grid-template-columns:72px minmax(0,1fr);gap:12px;}
+      .je-status{justify-content:flex-start;flex-wrap:wrap;grid-column:2;}
+      .je-actions{flex-wrap:wrap;}
+    }
+    @media (max-width: 480px){
+      .journal-entry{grid-template-columns:1fr;gap:8px;}
+      .je-date{padding-top:0;}
+      .je-status{grid-column:1;}
     }
 
     /* ══ RIGHT — ACCUPHASE UNIT ══ */
@@ -663,6 +669,9 @@
       .inline-checkbox{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mol-muted);cursor:pointer;}
     .inline-checkbox input{width:auto; accent-color:var(--mol-mid);}
 </style>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
 </head>
 <body>
 
@@ -1507,7 +1516,7 @@
           'style="animation:pulse 1.2s ease-in-out infinite"' : '';
         return '<div class="journal-entry">'+
           '<span class="je-date">'+dateStr+'</span>'+
-          '<div><div class="je-title">'+j.title+'</div>'+
+          '<div class="je-main"><div class="je-title">'+j.title+'</div>'+
           '<div class="je-sub">'+j.planner_model.split('/').pop()+' · '+j.video_model.split('/').pop()+'</div></div>'+
           '<div class="je-status">'+
             '<div class="je-dot '+dotCls+'"></div>'+
@@ -1517,7 +1526,7 @@
               '<button class="btn btn-ghost" type="button" onclick="reloadJobForEdit(\''+j.id+'\')" title="Reload this job’s storyboard and settings to edit and resubmit">✎ Edit</button>'+
               '<button class="btn btn-danger" type="button" onclick="deleteJob(\''+j.id+'\')" title="Delete this project permanently">Delete</button>'+
             '</div>'+
-          '</div>';
+          '</div></div>';
       }).join('');
     }
 
@@ -1856,10 +1865,10 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
             <div class="frame-voice" style="padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px;">
               <label style="font-size: 10px; color: var(--mol-muted); text-transform: uppercase;">Voice Narration</label>
-              <textarea placeholder="Narration / Dialogue..." style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
+              <textarea placeholder="Narration / Dialogue..." class="frame-narration" style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
             </div>
             <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
-              <button type="button" class="btn-secondary">Render Shot</button>
+              <button type="button" class="render-shot-btn" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
             </div>
           `;
           trackItems.appendChild(fDiv);
@@ -1872,6 +1881,64 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Timeline generation error:", err);
         emptyState.textContent = "Error parsing response. Please try again.";
         genBtn.textContent = "Generate Draft";
+      });
+    });
+  }
+
+  // Per-panel sub-story generation
+  if (trackItems) {
+    trackItems.addEventListener("click", (e) => {
+      const btn = e.target.closest(".render-shot-btn");
+      if (!btn) return;
+      e.stopPropagation();
+      const frame = btn.closest(".timeline-frame");
+      if (!frame) return;
+
+      const visualTA = frame.querySelector("textarea");
+      const narrationTA = frame.querySelector(".frame-narration");
+      const storyEl = document.getElementById("story-text");
+      const parentStory = storyEl ? storyEl.value.trim() : "";
+
+      const sceneNumber = frame.querySelector(".frame-number")?.textContent?.trim() || "";
+      const fullVisual = visualTA ? visualTA.value.trim() : "";
+      let action = "";
+      let visual = fullVisual;
+      if (fullVisual.includes(":")) {
+        const parts = fullVisual.split(":");
+        action = parts[0].trim();
+        visual = parts.slice(1).join(":").trim();
+      }
+      const narration = narrationTA ? narrationTA.value.trim() : "";
+
+      const originalText = btn.textContent;
+      btn.textContent = "Generating...";
+      btn.disabled = true;
+
+      fetch("/api/timeline/substory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scene_number: sceneNumber,
+          action: action,
+          visual: visual,
+          narration: narration,
+          parent_story: parentStory
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        if (visualTA) visualTA.value = `${data.action}: ${data.visual}`;
+        if (narrationTA) narrationTA.value = data.narration || "";
+        btn.textContent = "Render Shot";
+      })
+      .catch(err => {
+        console.error("Sub-story generation error:", err);
+        alert("Failed to generate sub-story: " + err.message);
+        btn.textContent = originalText;
+      })
+      .finally(() => {
+        btn.disabled = false;
       });
     });
   }

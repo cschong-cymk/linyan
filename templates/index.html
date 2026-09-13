@@ -969,6 +969,9 @@
       }
     }
   </style>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
 </head>
 <body>
 
@@ -1719,6 +1722,101 @@ document.addEventListener("DOMContentLoaded", () => {
   const emptyState = document.getElementById("timeline-empty-state");
   const trackItems = document.getElementById("timeline-track-items");
 
+  function hashString(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i);
+      h = ((h << 5) - h) + c;
+      h |= 0;
+    }
+    return Math.abs(h).toString(16);
+  }
+
+  function getStoryHash() {
+    const storyEl = document.getElementById("story-text");
+    const storyText = storyEl ? storyEl.value.trim() : "";
+    return storyText ? hashString(storyText) : "";
+  }
+
+  function formatSubplotDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleString();
+  }
+
+  function applySubplot(frame, subplot) {
+    const visualTA = frame.querySelector("textarea");
+    const narrationTA = frame.querySelector(".frame-narration");
+    if (visualTA) visualTA.value = `${subplot.action || ""}: ${subplot.visual || ""}`.replace(/^: /, "").trim();
+    if (narrationTA) narrationTA.value = subplot.narration || "";
+  }
+
+  function renderSubplotHistory(frame, subplots) {
+    let historyWrap = frame.querySelector(".subplot-history");
+    if (!historyWrap) return;
+    const list = historyWrap.querySelector(".subplot-history-list");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!subplots || subplots.length === 0) {
+      historyWrap.style.display = "none";
+      return;
+    }
+    historyWrap.style.display = "block";
+    subplots.forEach((sp) => {
+      const item = document.createElement("div");
+      item.className = "subplot-history-item";
+      item.style.cssText = "padding: 8px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; cursor: pointer; background: rgba(0,0,0,0.2);";
+      const preview = ((sp.action || "") + ": " + (sp.visual || "")).replace(/^: /, "").trim();
+      item.innerHTML = `
+        <div style="font-size: 11px; color: var(--ghost); margin-bottom: 4px;">${formatSubplotDate(sp.created_at)}</div>
+        <div style="font-size: 12px; color: var(--ink); line-height: 1.35;">${preview.substring(0, 140)}${preview.length > 140 ? "…" : ""}</div>
+      `;
+      item.addEventListener("click", () => applySubplot(frame, sp));
+      list.appendChild(item);
+    });
+  }
+
+  function loadSubplotHistory(frame) {
+    const storyHash = frame.dataset.storyHash || getStoryHash();
+    const sceneNumber = frame.dataset.sceneNumber;
+    if (!storyHash || !sceneNumber) return;
+    frame.dataset.storyHash = storyHash;
+    fetch(`/api/timeline/subplots?story_hash=${encodeURIComponent(storyHash)}&scene_number=${encodeURIComponent(sceneNumber)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) throw new Error(data.error);
+        renderSubplotHistory(frame, data.subplots || []);
+      })
+      .catch((err) => console.error("Failed to load subplot history:", err));
+  }
+
+  function appendSubplotToHistory(frame, subplot) {
+    let historyWrap = frame.querySelector(".subplot-history");
+    if (!historyWrap) return;
+    let subplots = [];
+    const existing = historyWrap.querySelectorAll(".subplot-history-item");
+    if (existing.length === 0) {
+      // First entry; re-fetch to keep ordering consistent.
+      loadSubplotHistory(frame);
+      return;
+    }
+    // Build array from DOM and prepend new subplot.
+    existing.forEach((el) => {
+      const createdAt = el.querySelector("div:first-child")?.textContent?.trim();
+      const visualText = el.querySelector("div:nth-child(2)")?.textContent?.trim();
+      subplots.push({ created_at: createdAt, visual: visualText });
+    });
+    subplots.unshift({
+      id: subplot.id,
+      action: subplot.action,
+      visual: subplot.visual,
+      narration: subplot.narration,
+      created_at: subplot.created_at || new Date().toISOString(),
+    });
+    renderSubplotHistory(frame, subplots);
+  }
+
   if (genBtn) {
     genBtn.addEventListener("click", () => {
       const storyEl = document.getElementById("story-text");
@@ -1727,12 +1825,13 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Please write your story first.");
         return;
       }
-      
+      const storyHash = hashString(storyText);
+
       genBtn.textContent = "Generating...";
       emptyState.style.display = "block";
       emptyState.textContent = "Drafting the storyboard timeline...";
       trackItems.style.display = "none";
-      
+
       fetch("/api/timeline/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1743,12 +1842,16 @@ document.addEventListener("DOMContentLoaded", () => {
         if (data.error) throw new Error(data.error);
         const frames = data.frames || data;
         trackItems.innerHTML = "";
+        trackItems.dataset.storyHash = storyHash;
         frames.forEach((frame, idx) => {
+          const sceneNumber = String(frame.scene_number || (idx + 1));
           const fDiv = document.createElement("div");
           fDiv.className = "timeline-frame";
           if (idx === 0) fDiv.classList.add("active");
+          fDiv.dataset.storyHash = storyHash;
+          fDiv.dataset.sceneNumber = sceneNumber;
           fDiv.innerHTML = `
-            <div class="frame-number">${frame.scene_number || (idx + 1)}</div>
+            <div class="frame-number">${sceneNumber}</div>
             <div style="padding: 10px; display: flex; flex-direction: column; gap: 6px; flex: 1;">
               <label style="font-size: 10px; color: var(--ghost); text-transform: uppercase;">Visual Prompt & Action</label>
               <textarea style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--ink); flex: 1; min-height: 80px;" rows="4">${frame.action}: ${frame.visual}</textarea>
@@ -1758,10 +1861,15 @@ document.addEventListener("DOMContentLoaded", () => {
               <textarea placeholder="Narration / dialogue for this scene..." class="frame-narration" style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--ink); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
             </div>
             <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
-              <button type="button" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
+              <button type="button" class="render-shot-btn" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
+            </div>
+            <div class="subplot-history" style="display:none; padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25);">
+              <label style="font-size: 10px; color: var(--ghost); text-transform: uppercase; display: block; margin-bottom: 6px;">Previous Subplots</label>
+              <div class="subplot-history-list"></div>
             </div>
           `;
           trackItems.appendChild(fDiv);
+          loadSubplotHistory(fDiv);
         });
         emptyState.style.display = "none";
         trackItems.style.display = "grid";
@@ -1771,6 +1879,69 @@ document.addEventListener("DOMContentLoaded", () => {
         console.error("Timeline generation error:", err);
         emptyState.textContent = "Error parsing response. Please try again.";
         genBtn.textContent = "Generate Draft";
+      });
+    });
+  }
+
+  // Per-panel sub-story generation
+  if (trackItems) {
+    trackItems.addEventListener("click", (e) => {
+      const btn = e.target.closest(".render-shot-btn");
+      if (!btn) return;
+      e.stopPropagation();
+      const frame = btn.closest(".timeline-frame");
+      if (!frame) return;
+
+      const visualTA = frame.querySelector("textarea");
+      const narrationTA = frame.querySelector(".frame-narration");
+      const storyEl = document.getElementById("story-text");
+      const parentStory = storyEl ? storyEl.value.trim() : "";
+      const storyHash = frame.dataset.storyHash || getStoryHash();
+      frame.dataset.storyHash = storyHash;
+
+      const sceneNumber = frame.querySelector(".frame-number")?.textContent?.trim() || "";
+      frame.dataset.sceneNumber = sceneNumber;
+      const fullVisual = visualTA ? visualTA.value.trim() : "";
+      let action = "";
+      let visual = fullVisual;
+      if (fullVisual.includes(":")) {
+        const parts = fullVisual.split(":");
+        action = parts[0].trim();
+        visual = parts.slice(1).join(":").trim();
+      }
+      const narration = narrationTA ? narrationTA.value.trim() : "";
+
+      const originalText = btn.textContent;
+      btn.textContent = "Generating...";
+      btn.disabled = true;
+
+      fetch("/api/timeline/substory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scene_number: sceneNumber,
+          action: action,
+          visual: visual,
+          narration: narration,
+          parent_story: parentStory,
+          story_hash: storyHash
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) throw new Error(data.error);
+        if (visualTA) visualTA.value = `${data.action}: ${data.visual}`;
+        if (narrationTA) narrationTA.value = data.narration || "";
+        btn.textContent = "Render Shot";
+        appendSubplotToHistory(frame, data);
+      })
+      .catch(err => {
+        console.error("Sub-story generation error:", err);
+        alert("Failed to generate sub-story: " + err.message);
+        btn.textContent = originalText;
+      })
+      .finally(() => {
+        btn.disabled = false;
       });
     });
   }
