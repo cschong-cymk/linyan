@@ -11,6 +11,7 @@ This keeps the existing pipeline untouched when auto-preprocessing is disabled.
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Dict, List, Optional, Tuple
 from urllib import error as urllib_error
 from urllib import request as urllib_request
@@ -283,9 +284,14 @@ def rewrite_prompt(
         },
         method="POST",
     )
-    try:
+
+    def _call_llm():
         with urllib_request.urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            data = pool.submit(_call_llm).result(timeout=timeout)
         raw = data["choices"][0]["message"]["content"].strip()
         parsed = json.loads(raw)
         still = str(parsed.get("still_image_prompt") or "").strip()
@@ -293,7 +299,7 @@ def rewrite_prompt(
         if not still:
             raise ValueError("LLM returned empty still_image_prompt")
         return {"still": still, "motion": motion or extract_motion_prompt(prompt)}
-    except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError, ValueError):
+    except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError, ValueError, FutureTimeoutError):
         still, motion = _heuristic_simplify(prompt)
         return {"still": still, "motion": motion}
 
