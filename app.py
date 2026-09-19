@@ -26,6 +26,8 @@ from flask import Flask, g, jsonify, redirect, render_template, request, send_fi
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+from prompt_optimizer import analyze_prompt, rewrite_prompt
+
 APP_ROOT = Path(__file__).resolve().parent
 TEMPLATE_DIR = APP_ROOT / "templates"
 DATA_DIR = APP_ROOT / "data"
@@ -107,6 +109,12 @@ STRIPE_SIGNATURE_TOLERANCE = 300
 PUBLIC_BASE_URL = os.environ.get("LINYAN_PUBLIC_BASE_URL", "").rstrip("/")
 if PUBLIC_BASE_URL and not PUBLIC_BASE_URL.startswith(("http://", "https://")):
     PUBLIC_BASE_URL = f"https://{PUBLIC_BASE_URL}"
+
+# Global default for the prompt-preprocessing / first-frame fallback.
+# Per-job override is accepted via config.auto_preprocess_prompts.
+ENABLE_AUTO_PREPROCESS = os.environ.get("ENABLE_AUTO_PREPROCESS", "false").strip().lower() in (
+    "1", "true", "yes", "on"
+)
 
 # How long to poll for a single shot clip before giving up (seconds)
 SHOT_POLL_TIMEOUT = int(os.environ.get("SHOT_POLL_TIMEOUT", "600"))
@@ -579,6 +587,10 @@ def normalize_config(raw_config, settings):
         # kie.ai non-custom mode caps prompt at 500 chars; leave headroom for
         # the ", instrumental" suffix added in generate_background_music.
         "music_prompt": str(raw_config.get("music_prompt") or "").strip()[:450],
+        # Toggle the prompt-preprocessing / first-frame fallback pipeline.
+        "auto_preprocess_prompts": bool(
+            raw_config.get("auto_preprocess_prompts", ENABLE_AUTO_PREPROCESS)
+        ),
     }
     if config["aspect_ratio"] not in ASPECT_PRESETS:
         config["aspect_ratio"] = "16:9"
@@ -636,6 +648,14 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
     video_seconds = actual_duration if actual_duration else (config.get("target_duration") or 30)
     # smart duration: before planning we guess 30s for the quote; after planning we use the real total
     reference_seconds = character_count * REFERENCE_CLIP_DURATION
+
+    # When auto-preprocessing is on, we may render a short throwaway clip per
+    # shot to extract a first-frame reference image. Budget for it up front so
+    # the balance gate stays honest. This is an estimate (one clip per ~5s of
+    # video); the real count is rechecked before rendering.
+    if config.get("auto_preprocess_prompts"):
+        estimated_shots = max(1, video_seconds // 5)
+        reference_seconds += estimated_shots * REFERENCE_CLIP_DURATION
 
     planner_usd = 0.0
     pm = config.get("planner_model", "")
@@ -1068,6 +1088,67 @@ def generate_character_reference_image(job_id, name, description, config):
     safe_name = secure_filename(name) or "character"
     clip_path = CHARACTER_DIR / f"{job_id}-{safe_name}-{suffix}-ref-clip.mp4"
     frame_path = CHARACTER_DIR / f"{job_id}-{safe_name}-{suffix}.png"
+    try:
+        clip_path.write_bytes(video_bytes)
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-ss", REFERENCE_CLIP_SEEK,
+                "-i", str(clip_path),
+                "-frames:v", "1",
+                "-q:v", "2",
+                str(frame_path),
+            ],
+            check=True, capture_output=True,
+        )
+        return f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    finally:
+        clip_path.unlink(missing_ok=True)
+
+
+def generate_first_frame_image(job_id, shot_index, prompt, config):
+    """
+    Generate a first-frame reference image for a single shot by rendering a
+    short Seedance clip and extracting one frame with ffmpeg.
+
+    This uses the same proven Ark video endpoint as character reference images,
+    because this deployment has no separate text-to-image model configured.
+    The generated PNG is re-hosted under /character-refs/ so ModelArk can fetch
+    it as an image_url reference when the real shot is rendered.
+
+    Best-effort: returns a public https URL on success, or None on any failure.
+    A None result means the shot renders normally with the original prompt.
+    """
+    if not ARK_API_KEY or not PUBLIC_BASE_URL:
+        return None
+
+    # Use the job's own Ark video model for the first-frame render so cost
+    # estimates line up. If a non-Ark model is somehow selected here, fall
+    # back to Seedance 2.5 — this path is Ark-only.
+    ff_config = dict(config)
+    if _video_provider(ff_config.get("video_model", "")) != "ark":
+        ff_config["video_model"] = "dreamina-seedance-2-5-260628"
+        ff_config["resolution"] = "1080p"
+
+    # Anchor the prompt as a static frame.
+    still_prompt = prompt.strip()
+    if "static composition" not in still_prompt.lower():
+        still_prompt += ". static composition, no camera movement, single frozen moment"
+    content = [{"type": "text", "text": still_prompt}]
+
+    _usage_ctx.kind = "first_frame"
+    try:
+        video_bytes, _reason = submit_and_poll_video_task(content, ff_config, REFERENCE_CLIP_DURATION)
+    finally:
+        _usage_ctx.kind = "shot"
+    if video_bytes is None:
+        return None
+
+    suffix = uuid.uuid4().hex[:8]
+    clip_path = CHARACTER_DIR / f"{job_id}-firstframe-{shot_index:03d}-{suffix}-clip.mp4"
+    frame_path = CHARACTER_DIR / f"{job_id}-firstframe-{shot_index:03d}-{suffix}.png"
     try:
         clip_path.write_bytes(video_bytes)
         subprocess.run(
@@ -1756,7 +1837,7 @@ def _is_image_url_400(reason):
     return "image_url" in reason
 
 
-def call_video_model(shot, config, clip_path, character_bible):
+def call_video_model(job_id, shot, config, clip_path, character_bible):
     """
     Submit one shot to Seedance 2.0, poll until done, download clip.
     Returns (True, "ok") on success, (False, reason_string) on any failure.
@@ -1771,6 +1852,14 @@ def call_video_model(shot, config, clip_path, character_bible):
     request's `content` array as an image_url entry alongside the text prompt —
     same pattern this codebase already uses for text content. Capped at 9
     images, matching Seedance 2.0's published reference-image limit.
+
+    When config["auto_preprocess_prompts"] is True and a shot prompt is scored
+    as high overload risk, the prompt is rewritten into (1) a static still-image
+    prompt and (2) a motion/camera-only prompt. A first-frame reference image is
+    generated from the still prompt and attached as the first image_url; the
+    video model then receives only the motion/camera prompt as text. If the
+    first-frame generation fails, the shot falls back to the original prompt so
+    the job is never blocked by a preprocessing failure.
 
     The image_url content type was verified against a live ModelArk call on
     2026-07-23: the schema is accepted and the output genuinely conditions on
@@ -1789,9 +1878,46 @@ def call_video_model(shot, config, clip_path, character_bible):
     full_prompt = ". ".join(p.strip().rstrip(".") for p in prompt_parts if p.strip())
 
     duration = max(4, min(15, int(shot.get("duration", 5))))
+    provider = _video_provider(config.get("video_model", ""))
 
-    content = [{"type": "text", "text": full_prompt}]
+    # ── Optional prompt preprocessing / first-frame fallback ───────────────
+    text_prompt = full_prompt
+    first_frame_url = None
+    preprocess_applied = False
+    if config.get("auto_preprocess_prompts") and provider == "ark" and ARK_API_KEY:
+        analysis = analyze_prompt(shot["prompt"])
+        if analysis["overload"]:
+            planner_model = config.get("planner_model", "")
+            if not planner_model.startswith("dola-"):
+                planner_model = "dola-seed-2-1-turbo-260628"
+            rewritten = rewrite_prompt(
+                shot["prompt"],
+                api_base=ARK_API_BASE,
+                api_key=ARK_API_KEY,
+                model=planner_model,
+            )
+            still_prompt = rewritten.get("still") or shot["prompt"]
+            motion_prompt = rewritten.get("motion") or ""
+            text_prompt = motion_prompt or shot.get("camera") or full_prompt
+
+            generated = generate_first_frame_image(
+                job_id, shot["index"], still_prompt, config
+            )
+            if generated:
+                first_frame_url = generated
+                preprocess_applied = True
+            else:
+                # First-frame generation failed — fall back to the original
+                # full prompt rather than sending an incomplete motion-only
+                # description to the video model.
+                text_prompt = full_prompt
+
+    content = [{"type": "text", "text": text_prompt}]
     attached_urls = set()
+    if first_frame_url:
+        content.append({"type": "image_url", "image_url": {"url": first_frame_url}})
+        attached_urls.add(first_frame_url)
+
     for char_name in shot.get("characters_in_shot", []):
         if len(attached_urls) >= 9:
             break
@@ -1813,14 +1939,14 @@ def call_video_model(shot, config, clip_path, character_bible):
             content.append({"type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
-    provider = _video_provider(config.get("video_model", ""))
     if provider == "minimax":
-        first_frame_url = None
+        # MiniMax path is unchanged from the existing implementation.
+        minimax_first_frame = None
         for item in content[1:]:
             if item.get("type") == "image_url":
-                first_frame_url = item["image_url"]["url"]
+                minimax_first_frame = item["image_url"]["url"]
                 break
-        video_bytes, reason = submit_and_poll_minimax_task(full_prompt, first_frame_url, config, duration)
+        video_bytes, reason = submit_and_poll_minimax_task(full_prompt, minimax_first_frame, config, duration)
     else:
         video_bytes, reason = submit_and_poll_video_task(content, config, duration)
         if video_bytes is None and attached_urls and _is_image_url_400(reason):
@@ -1837,7 +1963,10 @@ def call_video_model(shot, config, clip_path, character_bible):
         clip_path.write_bytes(video_bytes)
     except OSError as exc:
         return False, f"Write failed: {exc}"
-    return True, "ok"
+    status_note = "ok"
+    if preprocess_applied:
+        status_note += " (preprocessed)"
+    return True, status_note
 
 
 def render_shots(job_id, shots, config, character_bible):
@@ -1860,7 +1989,7 @@ def render_shots(job_id, shots, config, character_bible):
 
     for shot in shots:
         clip_path = OUTPUT_DIR / f"{job_id}-shot-{shot['index']:03d}.mp4"
-        ok, reason = call_video_model(shot, config, clip_path, character_bible)
+        ok, reason = call_video_model(job_id, shot, config, clip_path, character_bible)
         entry = {
             "index": shot["index"],
             "duration": shot["duration"],
@@ -3050,6 +3179,13 @@ def delete_job(job_id):
     # Remove character reference images tied to this job
     try:
         for ref in CHARACTER_DIR.glob(f"{job_id}-ref-*"):
+            ref.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+    # Remove auto-generated first-frame reference images tied to this job
+    try:
+        for ref in CHARACTER_DIR.glob(f"{job_id}-firstframe-*"):
             ref.unlink(missing_ok=True)
     except OSError:
         pass
