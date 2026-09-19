@@ -1524,6 +1524,10 @@ def _call_openai_compatible_planner(api_base, api_key, storyboard_text, config, 
         with urllib_request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         raw_json = data["choices"][0]["message"]["content"].strip()
+        # Strip markdown fences and sanitize control characters that some
+        # LLMs inject into JSON output, which break json.loads.
+        raw_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_json, flags=re.MULTILINE)
+        raw_json = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", raw_json)
         parsed = json.loads(raw_json)
         usage = data.get("usage", {})
 
@@ -1790,6 +1794,9 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
         output_path = OUTPUT_DIR / f"{job_id}.mp4"
         rendered_ok = False
 
+        if planner.get("status") == "failed":
+            raise RuntimeError(f"Planner failed: {planner.get('message', 'unknown error')}")
+
         if planner["status"] == "ok" and planner["shots"]:
             clips, shot_log = render_shots(
                 job_id, planner["shots"], config, planner.get("characters", {})
@@ -1804,7 +1811,9 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
                         clip_path.unlink(missing_ok=True)
 
         if not rendered_ok:
-            # Fallback: placeholder video (green screen + tone) or zip bundle
+            # Fallback: placeholder video (green screen + tone) or zip bundle.
+            # This is intentionally a best-effort fallback for planner skips or
+            # empty plans, NOT for planner failures (those are raised above).
             try:
                 generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
             except (subprocess.CalledProcessError, FileNotFoundError):
