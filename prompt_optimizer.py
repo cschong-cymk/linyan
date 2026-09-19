@@ -31,6 +31,8 @@ CAMERA_KEYWORDS: List[str] = [
     "close up", "closeup", "closes in", "extreme close", "medium shot",
     "establishing shot", "point of view", "pov shot", "over the shoulder",
     "rack focuses", "pulling out", "pushing in",
+    # Hyphenated variants that the literal matcher above would miss.
+    "push-in", "whip-pan", "whip-pans", "close-up", "close-ups",
 ]
 
 ACTION_KEYWORDS: List[str] = [
@@ -46,6 +48,17 @@ ACTION_KEYWORDS: List[str] = [
     "crouch", "crouches", "crouching", "leap", "leaps", "leaping",
     "sprint", "sprints", "sprinting", "march", "marches", "marching",
     "stroll", "strolls", "strolling",
+    "slam", "slams", "slammed", "slamming",
+    "jab", "jabs", "jabbed", "jabbing",
+    "flick", "flicks", "flicked", "flicking",
+    "snap", "snaps", "snapped", "snapping",
+    "shut", "shuts",
+    "pulse", "pulses", "pulsing",
+    "hiss", "hisses", "hissing",
+    "flicker", "flickers", "flickering",
+    "pop", "pops", "popping",
+    "scroll", "scrolls", "scrolling",
+    "cover", "covers", "covered",
 ]
 
 # Subset of ACTION_KEYWORDS used for heuristic staticization. Weather/natural
@@ -72,17 +85,23 @@ TEMPORAL_KEYWORDS: List[str] = [
 ]
 
 
+def _normalize_for_match(text: str) -> str:
+    """Collapse punctuation variants so hyphenated forms match plain forms."""
+    return text.lower().replace("-", " ")
+
+
 def _count_keywords(text: str, keywords: List[str]) -> int:
     """Count whole-word/phrase keyword hits (case-insensitive)."""
     total = 0
-    lowered = text.lower()
+    lowered = _normalize_for_match(text)
     for kw in keywords:
+        kw_norm = _normalize_for_match(kw)
         # Use word boundaries for single-word keywords, literal matching for
         # multi-word phrases.
-        if " " in kw:
-            total += lowered.count(kw)
+        if " " in kw_norm:
+            total += lowered.count(kw_norm)
         else:
-            total += len(re.findall(rf"\b{re.escape(kw)}\b", lowered))
+            total += len(re.findall(rf"\b{re.escape(kw_norm)}\b", lowered))
     return total
 
 
@@ -141,34 +160,54 @@ def _split_clauses(prompt: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _heuristic_simplify(prompt: str) -> Tuple[str, str]:
-    """Rule-based split into (still_image_prompt, motion_prompt)."""
-    action_pattern = r"\b(" + "|".join(re.escape(k) for k in STATIC_ACTION_KEYWORDS) + r")\b"
-    staticized = re.sub(action_pattern, "standing still", prompt, flags=re.IGNORECASE)
+def _heuristic_simplify(prompt: str, max_still_chars: int = 500) -> Tuple[str, str]:
+    """Rule-based split into (still_image_prompt, motion_prompt).
 
-    clauses = _split_clauses(staticized)
+    This is a last-resort fallback when no LLM is available. It drops clauses
+    that are clearly about camera moves, temporal progression, or character
+    actions, and keeps setting/mood/composition descriptors. The result is
+    shorter and cleaner than verb-replacement heuristics, at the cost of
+    losing some scene detail.
+    """
+    clauses = _split_clauses(prompt)
     kept: List[str] = []
+    dropped: List[str] = []
+
     for clause in clauses:
         lowered = clause.lower()
         if any(kw in lowered for kw in CAMERA_KEYWORDS):
+            dropped.append(clause)
             continue
         if any(kw in lowered for kw in TEMPORAL_KEYWORDS):
+            dropped.append(clause)
             continue
-        cleaned = re.sub(
-            r"\bstanding still\s+standing still\b", "standing still", clause, flags=re.IGNORECASE
-        )
-        kept.append(cleaned)
+        if _count_keywords(clause, ACTION_KEYWORDS) > 0:
+            # Keep the clause only if it is mostly descriptive (<=1 short action
+            # word) and contains setting/appearance information we want to keep.
+            words = clause.split()
+            action_hits = _count_keywords(clause, ACTION_KEYWORDS)
+            if action_hits >= 2 or len(words) < 5:
+                dropped.append(clause)
+                continue
+        kept.append(clause)
 
-    simplified = ", ".join(kept).strip()
+    simplified = ". ".join(kept).strip()
     if len(simplified) < 30:
-        camera_pattern = r"\b(" + "|".join(re.escape(k) for k in CAMERA_KEYWORDS) + r")\w*\b"
+        # Fallback: strip camera/temporal words from the original and keep it.
+        camera_pattern = r"\b(" + "|".join(re.escape(k) for k in CAMERA_KEYWORDS) + r")[\w\-]*\b"
         simplified = re.sub(camera_pattern, "", prompt, flags=re.IGNORECASE)
+        temporal_pattern = r"\b(" + "|".join(re.escape(k) for kw in TEMPORAL_KEYWORDS) + r")\b"
+        simplified = re.sub(temporal_pattern, "", simplified, flags=re.IGNORECASE)
         simplified = re.sub(r"\s+", " ", simplified).strip(",. ")
 
     anchor = "static composition, no camera movement, single frozen moment"
     if anchor.lower() not in simplified.lower():
         simplified = f"{simplified}. {anchor}."
     simplified = simplified.strip()
+
+    # Cap still-image prompt length; keep the anchor.
+    if len(simplified) > max_still_chars:
+        simplified = simplified[:max_still_chars].rsplit(" ", 1)[0] + f"... {anchor}."
 
     motion = extract_motion_prompt(prompt)
     return simplified, motion
