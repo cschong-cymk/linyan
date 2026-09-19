@@ -116,6 +116,12 @@ ENABLE_AUTO_PREPROCESS = os.environ.get("ENABLE_AUTO_PREPROCESS", "false").strip
     "1", "true", "yes", "on"
 )
 
+# ModelArk text-to-image model used for auto-generated first frames.
+FIRST_FRAME_IMAGE_MODEL = os.environ.get(
+    "FIRST_FRAME_IMAGE_MODEL", "seedream-4-0-20260415"
+)
+FIRST_FRAME_IMAGE_SIZE = os.environ.get("FIRST_FRAME_IMAGE_SIZE", "1024x1024")
+
 # How long to poll for a single shot clip before giving up (seconds)
 SHOT_POLL_TIMEOUT = int(os.environ.get("SHOT_POLL_TIMEOUT", "600"))
 SHOT_POLL_INTERVAL = int(os.environ.get("SHOT_POLL_INTERVAL", "10"))
@@ -1110,13 +1116,10 @@ def generate_character_reference_image(job_id, name, description, config):
 
 def generate_first_frame_image(job_id, shot_index, prompt, config):
     """
-    Generate a first-frame reference image for a single shot by rendering a
-    short Seedance clip and extracting one frame with ffmpeg.
-
-    This uses the same proven Ark video endpoint as character reference images,
-    because this deployment has no separate text-to-image model configured.
-    The generated PNG is re-hosted under /character-refs/ so ModelArk can fetch
-    it as an image_url reference when the real shot is rendered.
+    Generate a first-frame reference image for a single shot using ModelArk's
+    text-to-image endpoint (Seedream). The generated image is re-hosted under
+    /character-refs/ so ModelArk can fetch it as an image_url reference when the
+    real shot is rendered with Seedance.
 
     Best-effort: returns a public https URL on success, or None on any failure.
     A None result means the shot renders normally with the original prompt.
@@ -1124,49 +1127,54 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
     if not ARK_API_KEY or not PUBLIC_BASE_URL:
         return None
 
-    # Use the job's own Ark video model for the first-frame render so cost
-    # estimates line up. If a non-Ark model is somehow selected here, fall
-    # back to Seedance 2.5 — this path is Ark-only.
-    ff_config = dict(config)
-    if _video_provider(ff_config.get("video_model", "")) != "ark":
-        ff_config["video_model"] = "dreamina-seedance-2-5-260628"
-        ff_config["resolution"] = "1080p"
-
     # Anchor the prompt as a static frame.
     still_prompt = prompt.strip()
-    if "static composition" not in still_prompt.lower():
-        still_prompt += ". static composition, no camera movement, single frozen moment"
-    content = [{"type": "text", "text": still_prompt}]
+    anchor = "static composition, no camera movement, single frozen moment"
+    if anchor.lower() not in still_prompt.lower():
+        still_prompt += f". {anchor}."
 
-    _usage_ctx.kind = "first_frame"
+    model = FIRST_FRAME_IMAGE_MODEL
+    # Default size for Seedream 4.0; adjust via env if a different model is set.
+    size = FIRST_FRAME_IMAGE_SIZE
+
+    payload = {
+        "model": model,
+        "prompt": still_prompt,
+        "n": 1,
+        "size": size,
+    }
+    req = urllib_request.Request(
+        f"{ARK_API_BASE.rstrip('/')}/images/generations",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {ARK_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    image_url = None
     try:
-        video_bytes, _reason = submit_and_poll_video_task(content, ff_config, REFERENCE_CLIP_DURATION)
-    finally:
-        _usage_ctx.kind = "shot"
-    if video_bytes is None:
+        with urllib_request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        image_url = data["data"][0]["url"]
+    except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError) as exc:
+        app.logger.warning("first_frame image generation failed for job %s shot %s: %s", job_id, shot_index, exc)
+        return None
+
+    if not image_url:
         return None
 
     suffix = uuid.uuid4().hex[:8]
-    clip_path = CHARACTER_DIR / f"{job_id}-firstframe-{shot_index:03d}-{suffix}-clip.mp4"
     frame_path = CHARACTER_DIR / f"{job_id}-firstframe-{shot_index:03d}-{suffix}.png"
     try:
-        clip_path.write_bytes(video_bytes)
-        subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-ss", REFERENCE_CLIP_SEEK,
-                "-i", str(clip_path),
-                "-frames:v", "1",
-                "-q:v", "2",
-                str(frame_path),
-            ],
-            check=True, capture_output=True,
-        )
+        dl_req = urllib_request.Request(image_url, method="GET")
+        with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
+            frame_path.write_bytes(dl_resp.read())
         return f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+    except (urllib_error.HTTPError, urllib_error.URLError, OSError) as exc:
+        app.logger.warning("first_frame image download failed for job %s shot %s: %s", job_id, shot_index, exc)
         return None
-    finally:
-        clip_path.unlink(missing_ok=True)
 
 
 def populate_character_reference_images(job_id, character_bible, config):
