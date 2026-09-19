@@ -963,7 +963,7 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
         method="POST",
     )
     try:
-        with urllib_request.urlopen(submit_req, timeout=30) as resp:
+        with urllib_request.urlopen(submit_req, timeout=120) as resp:
             submit_data = json.loads(resp.read().decode("utf-8"))
         task_id = submit_data.get("id") or submit_data.get("task_id")
         if not task_id:
@@ -1154,10 +1154,12 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
     )
 
     image_url = None
+    app.logger.info("first_frame image generation start for job %s shot %s model=%s", job_id, shot_index, model)
     try:
-        with urllib_request.urlopen(req, timeout=120) as resp:
+        with urllib_request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         image_url = data["data"][0]["url"]
+        app.logger.info("first_frame image generation ok for job %s shot %s url=%s", job_id, shot_index, image_url)
     except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError) as exc:
         app.logger.warning("first_frame image generation failed for job %s shot %s: %s", job_id, shot_index, exc)
         return None
@@ -1169,9 +1171,11 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
     frame_path = CHARACTER_DIR / f"{job_id}-firstframe-{shot_index:03d}-{suffix}.png"
     try:
         dl_req = urllib_request.Request(image_url, method="GET")
-        with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
+        with urllib_request.urlopen(dl_req, timeout=180) as dl_resp:
             frame_path.write_bytes(dl_resp.read())
-        return f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
+        public_url = f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
+        app.logger.info("first_frame image saved for job %s shot %s: %s", job_id, shot_index, public_url)
+        return public_url
     except (urllib_error.HTTPError, urllib_error.URLError, OSError) as exc:
         app.logger.warning("first_frame image download failed for job %s shot %s: %s", job_id, shot_index, exc)
         return None
