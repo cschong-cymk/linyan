@@ -121,6 +121,9 @@ FIRST_FRAME_IMAGE_MODEL = os.environ.get(
     "FIRST_FRAME_IMAGE_MODEL", "seedream-4-0-20260415"
 )
 FIRST_FRAME_IMAGE_SIZE = os.environ.get("FIRST_FRAME_IMAGE_SIZE", "1024x1024")
+# Estimated Linyan credits per auto-generated first-frame image. Seedream 4.0
+# is roughly ~100 credits/image at current rates; tune via env/settings.
+FIRST_FRAME_IMAGE_CREDITS = float(os.environ.get("FIRST_FRAME_IMAGE_CREDITS", "100"))
 
 # How long to poll for a single shot clip before giving up (seconds)
 SHOT_POLL_TIMEOUT = int(os.environ.get("SHOT_POLL_TIMEOUT", "600"))
@@ -655,13 +658,13 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
     # smart duration: before planning we guess 30s for the quote; after planning we use the real total
     reference_seconds = character_count * REFERENCE_CLIP_DURATION
 
-    # When auto-preprocessing is on, we may render a short throwaway clip per
-    # shot to extract a first-frame reference image. Budget for it up front so
-    # the balance gate stays honest. This is an estimate (one clip per ~5s of
-    # video); the real count is rechecked before rendering.
+    # When auto-preprocessing is on, we generate one Seedream still image per
+    # shot as a first-frame reference. Budget for it up front so the balance
+    # gate stays honest. The real count is rechecked before rendering.
+    first_frame_image_credits = 0.0
     if config.get("auto_preprocess_prompts"):
         estimated_shots = max(1, video_seconds // 5)
-        reference_seconds += estimated_shots * REFERENCE_CLIP_DURATION
+        first_frame_image_credits = estimated_shots * FIRST_FRAME_IMAGE_CREDITS
 
     planner_usd = 0.0
     pm = config.get("planner_model", "")
@@ -682,7 +685,7 @@ def estimate_job_cost(config, settings, character_count=None, planner_usage=None
         
     raw_usd = usd_per_second * (video_seconds + reference_seconds) + planner_usd
     charged_usd = raw_usd * margin
-    credits = charged_usd * CREDITS_PER_USD
+    credits = charged_usd * CREDITS_PER_USD + first_frame_image_credits
 
     # Background music: flat fee, margin NOT applied — MUSIC_FLAT_CREDITS is
     # already the charged price (kie.ai's per-generation cost is cents; a flat
