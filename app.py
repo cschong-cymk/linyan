@@ -1909,16 +1909,19 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
     preprocess_applied = False
     if config.get("auto_preprocess_prompts") and provider == "ark" and ARK_API_KEY:
         analysis = analyze_prompt(shot["prompt"])
+        print(f"[call_video_model] job={job_id} shot={shot['index']} overload={analysis['overload']}", flush=True)
         if analysis["overload"]:
             planner_model = config.get("planner_model", "")
             if not planner_model.startswith("dola-"):
                 planner_model = "dola-seed-2-1-turbo-260628"
+            print(f"[call_video_model] rewrite start job={job_id} shot={shot['index']} model={planner_model}", flush=True)
             rewritten = rewrite_prompt(
                 shot["prompt"],
                 api_base=ARK_API_BASE,
                 api_key=ARK_API_KEY,
                 model=planner_model,
             )
+            print(f"[call_video_model] rewrite done job={job_id} shot={shot['index']}", flush=True)
             still_prompt = rewritten.get("still") or shot["prompt"]
             motion_prompt = rewritten.get("motion") or ""
             text_prompt = motion_prompt or shot.get("camera") or full_prompt
