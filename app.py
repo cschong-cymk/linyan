@@ -965,10 +965,12 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
         },
         method="POST",
     )
+    print(f"[video_submit] start model={config.get('video_model')} duration={duration}", flush=True)
     try:
         with urllib_request.urlopen(submit_req, timeout=120) as resp:
             submit_data = json.loads(resp.read().decode("utf-8"))
         task_id = submit_data.get("id") or submit_data.get("task_id")
+        print(f"[video_submit] ok task_id={task_id}", flush=True)
         if not task_id:
             return None, f"No task_id in submit response: {submit_data}"
     except urllib_error.HTTPError as exc:
@@ -980,8 +982,10 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
             body = exc.read().decode("utf-8", errors="replace")[:500]
         except Exception:
             body = ""
+        print(f"[video_submit] HTTP error: {exc.code} {exc.reason}", flush=True)
         return None, f"Submit HTTP {exc.code}: {exc.reason} {body}".strip()
     except (urllib_error.URLError, json.JSONDecodeError) as exc:
+        print(f"[video_submit] FAILED: {exc}", flush=True)
         return None, f"Submit error: {exc}"
 
     poll_url = f"{ARK_API_BASE}/contents/generations/tasks/{task_id}"
@@ -1010,11 +1014,15 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
             )
             if not video_url:
                 return None, "succeeded but no video_url in response"
+            print(f"[video_download] start task={task_id} url={video_url[:80]}...", flush=True)
             try:
                 dl_req = urllib_request.Request(video_url, method="GET")
                 with urllib_request.urlopen(dl_req, timeout=120) as dl_resp:
-                    return dl_resp.read(), None
+                    video_bytes = dl_resp.read()
+                print(f"[video_download] ok task={task_id} bytes={len(video_bytes)}", flush=True)
+                return video_bytes, None
             except (urllib_error.URLError, OSError) as exc:
+                print(f"[video_download] FAILED task={task_id}: {exc}", flush=True)
                 return None, f"Download failed: {exc}"
 
         elif status in ("failed", "cancelled", "expired", "error"):
@@ -1157,14 +1165,14 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
     )
 
     image_url = None
-    app.logger.info("first_frame image generation start for job %s shot %s model=%s", job_id, shot_index, model)
+    print(f"[first_frame] start job={job_id} shot={shot_index} model={model}", flush=True)
     try:
         with urllib_request.urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         image_url = data["data"][0]["url"]
-        app.logger.info("first_frame image generation ok for job %s shot %s url=%s", job_id, shot_index, image_url)
+        print(f"[first_frame] ok job={job_id} shot={shot_index} url={image_url}", flush=True)
     except (urllib_error.HTTPError, urllib_error.URLError, json.JSONDecodeError, KeyError, IndexError) as exc:
-        app.logger.warning("first_frame image generation failed for job %s shot %s: %s", job_id, shot_index, exc)
+        print(f"[first_frame] FAILED job={job_id} shot={shot_index}: {exc}", flush=True)
         return None
 
     if not image_url:
@@ -1177,10 +1185,10 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
         with urllib_request.urlopen(dl_req, timeout=180) as dl_resp:
             frame_path.write_bytes(dl_resp.read())
         public_url = f"{PUBLIC_BASE_URL}/character-refs/{frame_path.name}"
-        app.logger.info("first_frame image saved for job %s shot %s: %s", job_id, shot_index, public_url)
+        print(f"[first_frame] saved job={job_id} shot={shot_index}: {public_url}", flush=True)
         return public_url
     except (urllib_error.HTTPError, urllib_error.URLError, OSError) as exc:
-        app.logger.warning("first_frame image download failed for job %s shot %s: %s", job_id, shot_index, exc)
+        print(f"[first_frame] download FAILED job={job_id} shot={shot_index}: {exc}", flush=True)
         return None
 
 
