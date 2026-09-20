@@ -1524,12 +1524,20 @@ def _call_openai_compatible_planner(api_base, api_key, storyboard_text, config, 
     try:
         with urllib_request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        raw_json = data["choices"][0]["message"]["content"].strip()
+        raw_json = data["choices"][0]["message"]["content"]
         # Strip markdown fences and sanitize control characters that some
-        # LLMs inject into JSON output, which break json.loads.
+        # LLMs inject into JSON output, which break json.loads. Remove every
+        # literal ASCII control character (including tabs/newlines) so only
+        # valid JSON structural whitespace and printable text remain.
         raw_json = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_json, flags=re.MULTILINE)
-        raw_json = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", raw_json)
-        parsed = json.loads(raw_json)
+        sanitized = re.sub(r"[\x00-\x1f\x7f]", "", raw_json).strip()
+        try:
+            parsed = json.loads(sanitized)
+        except json.JSONDecodeError as parse_exc:
+            print(f"[planner] JSON parse failed: {parse_exc}", flush=True)
+            print(f"[planner] sanitized (first 500 chars): {sanitized[:500]!r}", flush=True)
+            print(f"[planner] raw (first 500 chars): {raw_json[:500]!r}", flush=True)
+            raise
         usage = data.get("usage", {})
 
         character_bible = {}
