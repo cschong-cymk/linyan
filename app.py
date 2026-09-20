@@ -1812,9 +1812,18 @@ def run_job_async(job_id, user_id, config, settings, storyboard_text, storyboard
                         clip_path.unlink(missing_ok=True)
 
         if not rendered_ok:
+            # If the planner succeeded but every shot failed, treat that as a
+            # hard render failure rather than shipping a silent placeholder.
+            # Only generate a placeholder when the planner itself was skipped
+            # or produced no shots to render.
+            if planner.get("status") == "ok" and planner.get("shots"):
+                raise RuntimeError(
+                    f"All shots failed to render. shot_log: {shot_log}"
+                )
+
             # Fallback: placeholder video (green screen + tone) or zip bundle.
             # This is intentionally a best-effort fallback for planner skips or
-            # empty plans, NOT for planner failures (those are raised above).
+            # empty plans, NOT for planner failures or all-shot render failures.
             try:
                 generate_placeholder_video(output_path, config["title"], job_id, config, storyboard_text)
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -1948,10 +1957,13 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
                 # description to the video model.
                 text_prompt = full_prompt
 
-    content = [{"type": "text", "text": text_prompt}]
+    # ModelArk's /contents/generations/tasks endpoint now requires a `role`
+    # field on every content entry, including image_url attachments. Use the
+    # same user role for the text prompt and all reference images.
+    content = [{"role": "user", "type": "text", "text": text_prompt}]
     attached_urls = set()
     if first_frame_url:
-        content.append({"type": "image_url", "image_url": {"url": first_frame_url}})
+        content.append({"role": "user", "type": "image_url", "image_url": {"url": first_frame_url}})
         attached_urls.add(first_frame_url)
 
     for char_name in shot.get("characters_in_shot", []):
@@ -1963,7 +1975,7 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
         _, entry = match
         ref_url = entry.get("reference_image_url")
         if ref_url and ref_url not in attached_urls:
-            content.append({"type": "image_url", "image_url": {"url": ref_url}})
+            content.append({"role": "user", "type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
     # Attach any user-uploaded character reference images globally (up to the
@@ -1972,7 +1984,7 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
         if len(attached_urls) >= 9:
             break
         if ref_url and ref_url not in attached_urls:
-            content.append({"type": "image_url", "image_url": {"url": ref_url}})
+            content.append({"role": "user", "type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
     if provider == "minimax":
