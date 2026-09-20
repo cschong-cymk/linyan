@@ -934,7 +934,7 @@ def submit_and_poll_minimax_task(content, config, duration, timeout=None):
     return None, f"Timed out after {timeout or SHOT_POLL_TIMEOUT}s waiting for task {task_id}"
 
 
-def submit_and_poll_video_task(content, config, duration, timeout=None):
+def submit_and_poll_video_task(content, config, duration, timeout=None, first_frame_image_url=None):
     """
     Low-level Ark video task submit + poll + download. Shared by call_video_model
     (per-shot rendering) and generate_character_reference_image (a short clip
@@ -949,14 +949,28 @@ def submit_and_poll_video_task(content, config, duration, timeout=None):
     if not ARK_API_KEY:
         return None, "ARK_API_KEY not set"
 
+    # ModelArk's /contents/generations/tasks treats image_url entries inside
+    # the content array as first-frame / first-last-frame generation, which
+    # means the output ratio is dictated by the image and the `ratio` field is
+    # rejected. To preserve the user's chosen ratio, an auto-generated first
+    # frame is supplied as the top-level first_frame_image_url field instead.
+    # Any remaining content-array image_urls are kept only when no first frame
+    # is supplied, and in that case ratio is omitted so the call doesn't 400.
     payload = {
         "model": config["video_model"],
         "content": content,
-        "ratio": config["aspect_ratio"],
         "resolution": config["resolution"],
         "duration": duration,
         "generate_audio": False,
     }
+    has_image_in_content = any(item.get("type") == "image_url" for item in content)
+    if first_frame_image_url:
+        payload["first_frame_image_url"] = first_frame_image_url
+        payload["ratio"] = config["aspect_ratio"]
+    elif not has_image_in_content:
+        payload["ratio"] = config["aspect_ratio"]
+    # else: content has image_url but no first_frame_image_url — omit ratio to
+    # avoid the first-frame/ratio conflict; output ratio follows the image.
     submit_req = urllib_request.Request(
         f"{ARK_API_BASE}/contents/generations/tasks",
         data=json.dumps(payload).encode("utf-8"),
@@ -1146,8 +1160,19 @@ def generate_first_frame_image(job_id, shot_index, prompt, config):
         still_prompt += f". {anchor}."
 
     model = FIRST_FRAME_IMAGE_MODEL
-    # Default size for Seedream 4.0; adjust via env if a different model is set.
-    size = FIRST_FRAME_IMAGE_SIZE
+    # Generate the first-frame image in the target video aspect ratio so that
+    # when it is supplied as first_frame_image_url the Seedance output keeps
+    # the requested ratio. Defaults to the env override if set; otherwise map
+    # from common aspect ratios to Seedream-supported sizes.
+    if FIRST_FRAME_IMAGE_SIZE:
+        size = FIRST_FRAME_IMAGE_SIZE
+    else:
+        size = {
+            "16:9": "1792x1024",
+            "9:16": "1024x1792",
+            "1:1": "1024x1024",
+            "4:5": "1024x1280",
+        }.get(config.get("aspect_ratio", "16:9"), "1024x1024")
 
     payload = {
         "model": model,
@@ -1965,14 +1990,15 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
                 # description to the video model.
                 text_prompt = full_prompt
 
-    # ModelArk's /contents/generations/tasks endpoint now requires a `role`
-    # field on every content entry, including image_url attachments. Use the
-    # same user role for the text prompt and all reference images.
-    content = [{"role": "user", "type": "text", "text": text_prompt}]
+    # ModelArk's /contents/generations/tasks endpoint treats image_url entries
+    # inside the content array as first-frame generation, which ignores the
+    # requested ratio and may 400 when ratio is supplied. To keep the target
+    # aspect ratio, pass the auto-generated first frame as the top-level
+    # first_frame_image_url field (proven to accept ratio). Character/uploaded
+    # refs are still sent via content-array image_url when no first frame is
+    # available; in that case ratio is omitted below.
+    content = [{"type": "text", "text": text_prompt}]
     attached_urls = set()
-    if first_frame_url:
-        content.append({"role": "user", "type": "image_url", "image_url": {"url": first_frame_url}})
-        attached_urls.add(first_frame_url)
 
     for char_name in shot.get("characters_in_shot", []):
         if len(attached_urls) >= 9:
@@ -1983,7 +2009,7 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
         _, entry = match
         ref_url = entry.get("reference_image_url")
         if ref_url and ref_url not in attached_urls:
-            content.append({"role": "user", "type": "image_url", "image_url": {"url": ref_url}})
+            content.append({"type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
     # Attach any user-uploaded character reference images globally (up to the
@@ -1992,7 +2018,7 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
         if len(attached_urls) >= 9:
             break
         if ref_url and ref_url not in attached_urls:
-            content.append({"role": "user", "type": "image_url", "image_url": {"url": ref_url}})
+            content.append({"type": "image_url", "image_url": {"url": ref_url}})
             attached_urls.add(ref_url)
 
     if provider == "minimax":
@@ -2004,7 +2030,9 @@ def call_video_model(job_id, shot, config, clip_path, character_bible):
                 break
         video_bytes, reason = submit_and_poll_minimax_task(full_prompt, minimax_first_frame, config, duration)
     else:
-        video_bytes, reason = submit_and_poll_video_task(content, config, duration)
+        video_bytes, reason = submit_and_poll_video_task(
+            content, config, duration, first_frame_image_url=first_frame_url
+        )
         if video_bytes is None and attached_urls and _is_image_url_400(reason):
             # A reference image couldn't be fetched by ModelArk — drop the images
             # and retry once so the shot still renders with text-only consistency.
