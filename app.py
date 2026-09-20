@@ -965,7 +965,12 @@ def submit_and_poll_video_task(content, config, duration, timeout=None, first_fr
     }
     has_image_in_content = any(item.get("type") == "image_url" for item in content)
     if first_frame_image_url:
+        # Top-level first_frame_image_url preserves the chosen ratio, but only
+        # if the content array contains no image_url entries at all. Strip them
+        # here so character/uploaded refs don't flip the request into the
+        # content-array first-frame mode that rejects ratio.
         payload["first_frame_image_url"] = first_frame_image_url
+        payload["content"] = [item for item in content if item.get("type") != "image_url"]
         payload["ratio"] = config["aspect_ratio"]
     elif not has_image_in_content:
         payload["ratio"] = config["aspect_ratio"]
