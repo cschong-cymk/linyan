@@ -77,6 +77,19 @@ LIGHTING_EFFECT_KEYWORDS: List[str] = [
     "shimmer", "shimmering", "volumetric", "backlit", "rim light",
 ]
 
+# Phrases that indicate a dense screen/UI with many independent visual
+# elements. These overload the video model even when there is little
+# character action or camera movement.
+UI_DENSITY_KEYWORDS: List[str] = [
+    "tiktok", "live stream", "livestream", "user interface", "ui", "screen",
+    "full-screen", "fullscreen", "banner", "banners", "viewer count",
+    "comments", "chat feed", "chat", "pop-up", "popup", "pop up", "alerts",
+    "notifications", "feed", "scrolling", "ticking", "dashboard", "hud",
+    "overlay", "overlays", "lower third", "caption", "captions", "subtitle",
+    "subtitles", "text overlay", "graphic", "graphics", "chart", "charts",
+    "scoreboard", "news ticker", "ticker", "live chat",
+]
+
 # Phrases that imply temporal progression; they belong in the motion prompt,
 # not the still-image prompt.
 TEMPORAL_KEYWORDS: List[str] = [
@@ -126,22 +139,26 @@ def analyze_prompt(prompt: str) -> Dict:
         "action_count": _count_keywords(text, ACTION_KEYWORDS),
         "camera_move_count": _count_keywords(text, CAMERA_KEYWORDS),
         "lighting_effect_count": _count_keywords(text, LIGHTING_EFFECT_KEYWORDS),
+        "ui_density_count": _count_keywords(text, UI_DENSITY_KEYWORDS),
     }
 
     # Tunable scoring. Camera moves are the most expensive source of failure,
     # so they carry the heaviest weight. Action density is next, then raw
-    # length and lighting effects.
+    # length and lighting effects. UI density is weighted heavily because
+    # screens full of independent widgets/comments/banners overload the model
+    # even without much motion.
     score = (
         (metrics["char_count"] / 250.0)
         + (metrics["word_count"] / 40.0)
         + (metrics["action_count"] * 1.5)
         + (metrics["camera_move_count"] * 2.5)
         + (metrics["lighting_effect_count"] * 1.0)
+        + (metrics["ui_density_count"] * 2.0)
     )
 
     if score <= 6.0:
         risk_level = "low"
-    elif score <= 14.0:
+    elif score <= 12.0:
         risk_level = "medium"
     else:
         risk_level = "high"
