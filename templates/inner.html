@@ -683,6 +683,7 @@
     </a>
     <div class="topbar-center">
       <div class="input-sel active" onclick="showPanel('render')">Render</div>
+      <div class="input-sel" onclick="window.location='/chat'">Chat</div>
       <div class="input-sel" onclick="showPanel('journal')">Journal</div>
       <div class="input-sel" onclick="window.location='/settings'">Settings</div>
       <div class="input-sel hidden" id="topbar-admin-link" onclick="window.location='/#admin-panel'">Admin</div>
@@ -725,7 +726,7 @@
         <div class="file-upload-wrap">
           <span class="file-label">Input</span>
           <div class="mode-toggle">
-            <button class="mode-btn" type="button" onclick="setInputMode('valenpyno')" style="color:#f9a8c9;">✨ Valenpyno</button>
+            <button class="mode-btn" type="button" onclick="setInputMode('valenpyno')" style="color:#f9a8c9;">✨ LINYAN</button>
             <button class="mode-btn active" type="button" onclick="setInputMode('text')">Write</button>
             <button class="mode-btn" type="button" onclick="setInputMode('file')">Upload .md</button>
           </div>
@@ -752,7 +753,7 @@
         <div id="input-valenpyno-wrap" style="display:none;">
           <div style="background:var(--mol-elevated); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:16px;">
             <div id="valenpyno-chat" style="max-height:220px; overflow-y:auto; margin-bottom:12px; font:300 14px var(--serif); color:var(--mol-ink); line-height:1.6; display:flex; flex-direction:column; gap:12px;">
-              <div style="opacity:0.8;"><strong>Valenpyno:</strong> What's your vision? I can help you draft a highly detailed, professional prompt for the video generation models.</div>
+              <div style="opacity:0.8;"><strong>LINYAN:</strong> What's your vision? I can help you draft a highly detailed, professional prompt for the video generation models.</div>
             </div>
             <div style="display:flex; gap:8px;">
               <input type="text" id="valenpyno-input" style="flex:1; background:var(--mol-bg); border:1px solid rgba(255,255,255,0.1); color:var(--white); border-radius:6px; padding:10px 12px; font-family:var(--sans); font-size:13px; outline:none;" placeholder="Describe your video idea..." onkeydown="if(event.key==='Enter') sendValenpyno()">
@@ -1752,12 +1753,12 @@
       chatEl.appendChild(userBubble);
       
       inputEl.value = "";
-      document.getElementById('valenpyno-status').innerText = "Valenpyno is thinking...";
+      document.getElementById('valenpyno-status').innerText = "LINYAN is thinking...";
       document.getElementById('valenpyno-send-btn').disabled = true;
       
       var botBubble = document.createElement('div');
       botBubble.style = "opacity:0.9; color: var(--sakura);";
-      botBubble.innerHTML = "<strong>Valenpyno:</strong> <span></span>";
+      botBubble.innerHTML = "<strong>LINYAN:</strong> <span></span>";
       var span = botBubble.querySelector('span');
       chatEl.appendChild(botBubble);
       chatEl.scrollTop = chatEl.scrollHeight;
@@ -1803,7 +1804,7 @@
           if (xhr.readyState === 4) {
             document.getElementById('valenpyno-send-btn').disabled = false;
             if (xhr.status !== 200) {
-               span.innerText = "Error reaching Valenpyno.";
+               span.innerText = "Error reaching LINYAN.";
                document.getElementById('valenpyno-status').innerText = "Error.";
             }
           }
@@ -1818,13 +1819,13 @@
 
     function applyValenpyno() {
       var textarea = document.getElementById('story-text');
-      textarea.value = valenpynoCurrentDraft || document.getElementById('valenpyno-chat').lastElementChild.innerText.replace('Valenpyno: ', '');
+      textarea.value = valenpynoCurrentDraft || document.getElementById('valenpyno-chat').lastElementChild.innerText.replace('LINYAN: ', '');
       setInputMode('text');
       updateWordCount();
     }
 
 
-// Real Timeline JS with AI Singapore Integration
+// Real Timeline JS with LINYAN Integration
 document.addEventListener("DOMContentLoaded", () => {
   const genBtn = document.getElementById("timeline-gen-btn");
   const emptyState = document.getElementById("timeline-empty-state");
@@ -1840,7 +1841,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       genBtn.textContent = "Generating...";
       emptyState.style.display = "block";
-      emptyState.textContent = "AI Singapore is drafting the storyboard...";
+      emptyState.textContent = "LINYAN the girl is drafting the storyboard...";
       trackItems.style.display = "none";
       
       fetch("/api/timeline/generate", {
@@ -1868,7 +1869,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <textarea placeholder="Narration / Dialogue..." class="frame-narration" style="width: 100%; font-size: 13px; resize: vertical; padding: 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.2); color: var(--text-color); min-height: 50px;" rows="2">${frame.narration || ""}</textarea>
             </div>
             <div style="padding: 10px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: flex-end; align-items: center; background: rgba(0,0,0,0.4);">
-              <button type="button" class="render-shot-btn" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Render Shot</button>
+              <button type="button" class="render-shot-btn" style="padding: 6px 14px; font-size: 12px; font-weight: bold; color: #000; background: var(--violet, #e8a020); border: none; border-radius: 4px; cursor: pointer;">Expand Shot</button>
             </div>
           `;
           trackItems.appendChild(fDiv);
@@ -1930,7 +1931,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (data.error) throw new Error(data.error);
         if (visualTA) visualTA.value = `${data.action}: ${data.visual}`;
         if (narrationTA) narrationTA.value = data.narration || "";
-        btn.textContent = "Render Shot";
+        btn.textContent = "Expand Shot";
       })
       .catch(err => {
         console.error("Sub-story generation error:", err);

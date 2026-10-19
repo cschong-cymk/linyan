@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>琳嫣 — Chat to Screen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400&family=Noto+Sans:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --void:    #050505;
+      --deep:    #0a0a0a;
+      --layer:   #111111;
+      --panel:   #151515;
+      --lift:    #222222;
+      --line:    rgba(255,255,255,0.1);
+      --line2:   rgba(255,255,255,0.2);
+      --ink:     #f5f5f5;
+      --mid:     #a3a3a3;
+      --muted:   #737373;
+      --ghost:   #8a7cb2;
+      --violet:  #a78bfa;
+      --lavender:#c4b5fd;
+      --mauve:   #e879f9;
+      --rose:    #f0abfc;
+      --ok:      #6ee7b7;
+      --warn:    #fcd34d;
+      --danger:  #fca5a5;
+      --r: 14px;
+      --serif: "Noto Serif SC", "Noto Serif", Georgia, serif;
+      --sans:  "Noto Sans", system-ui, sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      font-size: 16px; font-weight: 400; line-height: 1.6;
+      color: var(--ink); background: var(--void);
+      min-height: 100vh; min-height: 100dvh;
+      overflow-x: hidden;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+
+    .chat-shell {
+      max-width: 980px;
+      margin: 0 auto;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px 16px 16px;
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .chat-title {
+      font-family: var(--serif);
+      font-size: 28px;
+      font-weight: 300;
+      letter-spacing: -0.5px;
+    }
+    .chat-title span { color: var(--violet); }
+    .back-link {
+      color: var(--mid);
+      text-decoration: none;
+      font-size: 14px;
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      transition: all .15s ease;
+    }
+    .back-link:hover { color: var(--ink); border-color: var(--line2); background: var(--lift); }
+
+    .chat-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 0;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      padding: 8px 2px 80px;
+    }
+
+    .msg {
+      max-width: 86%;
+      padding: 14px 18px;
+      border-radius: var(--r);
+      font-size: 15px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      animation: fadeIn .25s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: translateY(0);} }
+    .msg.user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, rgba(167,139,250,.18), rgba(232,121,249,.12));
+      border: 1px solid rgba(167,139,250,.25);
+      border-bottom-right-radius: 4px;
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: var(--layer);
+      border: 1px solid var(--line);
+      border-bottom-left-radius: 4px;
+    }
+    .msg.typing { color: var(--muted); font-style: italic; }
+
+    .storyboard-preview {
+      margin-top: 10px;
+      padding: 14px;
+      background: rgba(0,0,0,.35);
+      border: 1px dashed var(--line2);
+      border-radius: 10px;
+      font-family: var(--serif);
+      font-size: 14px;
+      line-height: 1.75;
+      color: var(--mid);
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .storyboard-preview h4 {
+      font-family: var(--sans);
+      color: var(--ink);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .composer {
+      position: sticky;
+      bottom: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 12px 14px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+      box-shadow: 0 -8px 40px rgba(0,0,0,.4);
+    }
+    .composer textarea {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.55;
+      resize: none;
+      max-height: 160px;
+      min-height: 28px;
+      padding: 6px 4px;
+    }
+    .composer textarea::placeholder { color: var(--muted); }
+    .send-btn {
+      flex: 0 0 auto;
+      width: 42px; height: 42px;
+      border-radius: 50%;
+      border: none;
+      background: linear-gradient(135deg, var(--violet), var(--mauve));
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: transform .12s ease, opacity .12s ease;
+    }
+    .send-btn:hover:not(:disabled) { transform: scale(1.05); }
+    .send-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .action-bar {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 500;
+      text-decoration: none;
+      border: 1px solid var(--line);
+      background: var(--lift);
+      color: var(--ink);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .btn:hover { border-color: var(--line2); background: #2a2a2a; }
+    .btn-primary { background: linear-gradient(135deg, var(--violet), var(--mauve)); border: none; color: #fff; }
+    .btn-primary:hover { filter: brightness(1.08); }
+
+    .hint {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .chat-shell { padding: 16px 12px 12px; }
+      .chat-title { font-size: 22px; }
+      .msg { max-width: 94%; padding: 12px 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-shell">
+    <header class="chat-header">
+      <h1 class="chat-title">Chat to <span>Screen</span></h1>
+      <a class="back-link" href="/studio">← Studio</a>
+    </header>
+
+    <main class="chat-stage">
+      <div class="messages" id="messages">
+        <div class="msg bot">
+          Describe the video you want to make. I'll turn it into a storyboard and start rendering.
+        </div>
+      </div>
+
+      <div class="composer">
+        <textarea id="userInput" rows="1" placeholder="A cat walking through a neon-lit Tokyo street at night..."></textarea>
+        <button class="send-btn" id="sendBtn" aria-label="Send">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path fill="currentColor" d="m11 8.798-2.9 2.9a.95.95 0 0 1-.7.275.95.95 0 0 1-.7-.275.95.95 0 0 1-.274-.7q0-.424.275-.7l4.6-4.6q.3-.3.7-.3t.7.3l4.6 4.6a.95.95 0 0 1 .275.7.95.95 0 0 1-.275.7.95.95 0 0 1-.7.275.95.95 0 0 1-.7-.275l-2.9-2.9v8.2q0 .425-.288.713a.97.97 0 0 1-.712.287.97.97 0 0 1-.713-.287.97.97 0 0 1-.287-.713z"/>
+          </svg>
+        </button>
+      </div>
+      <p class="hint">Press Enter to send, Shift+Enter for a new line.</p>
+    </main>
+  </div>
+
+  <script>
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('userInput');
+    const sendBtn = document.getElementById('sendBtn');
+    let isWorking = false;
+
+    function appendMsg(text, cls, extraHTML='') {
+      const div = document.createElement('div');
+      div.className = 'msg ' + cls;
+      div.textContent = text;
+      if (extraHTML) div.innerHTML += extraHTML;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return div;
+    }
+
+    function setWorking(w) {
+      isWorking = w;
+      sendBtn.disabled = w;
+      input.disabled = w;
+    }
+
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text || isWorking) return;
+      input.value = '';
+      input.style.height = 'auto';
+      appendMsg(text, 'user');
+      setWorking(true);
+
+      const typing = appendMsg('Drafting storyboard and starting render...', 'bot typing');
+
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await resp.json();
+        typing.remove();
+
+        if (!resp.ok || data.error) {
+          appendMsg(data.error || 'Something went wrong.', 'bot');
+          setWorking(false);
+          return;
+        }
+
+        let extra = '<div class="storyboard-preview"><h4>Storyboard preview</h4>' + escapeHtml(data.storyboard_text || '').replace(/\n/g, '<br>') + '</div>';
+        extra += '<div class="action-bar"><a class="btn btn-primary" href="/studio">Open in Studio →</a></div>';
+        appendMsg('Done. Job "' + (data.job?.title || 'Untitled') + '" is now rendering.', 'bot', extra);
+      } catch (e) {
+        typing.remove();
+        appendMsg('Network error: ' + e.message, 'bot');
+      }
+      setWorking(false);
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, function(m) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'})[m];
+      });
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+    });
+  </script>
+</body>
+</html>

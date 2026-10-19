@@ -18,6 +18,10 @@ from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import quote as url_quote
+try:
+    import edge_tts
+except Exception:
+    edge_tts = None
 
 
 import psycopg2
@@ -2075,6 +2079,12 @@ def render_shots(job_id, shots, config, character_bible):
     """
     clips = []
     shot_log = []
+    narration_enabled = bool(config.get("narration_enabled"))
+    voice_model = config.get("voice_model")
+    audio_tmp = None
+    if narration_enabled and voice_model and voice_model != "none":
+        audio_tmp = OUTPUT_DIR / f"{job_id}-audio-tmp"
+        audio_tmp.mkdir(exist_ok=True)
 
     for shot in shots:
         clip_path = OUTPUT_DIR / f"{job_id}-shot-{shot['index']:03d}.mp4"
@@ -2087,7 +2097,17 @@ def render_shots(job_id, shots, config, character_bible):
         }
         shot_log.append(entry)
         if ok:
-            clips.append((clip_path, shot["duration"]))
+            final_clip = clip_path
+            if narration_enabled and voice_model and voice_model != "none" and audio_tmp:
+                narrated, narr_err = mix_narration_into_clip(
+                    clip_path, shot.get("narration", ""), voice_model, audio_tmp
+                )
+                if narrated:
+                    final_clip = narrated
+                elif narr_err:
+                    entry["narration_status"] = "failed"
+                    entry["narration_reason"] = narr_err
+            clips.append((final_clip, shot["duration"]))
         else:
             # Log the failure but keep going — partial output is better than nothing
             pass
@@ -2273,6 +2293,66 @@ def mix_music_into_video(video_path, music_path):
         return False, f"ffmpeg mix failed: {exc}"
 
 
+EDGE_TTS_VOICES = {
+    "warm-guide": "en-GB-SoniaNeural",
+    "campaign-voice": "en-US-GuyNeural",
+    "neutral-briefing": "en-US-AriaNeural",
+}
+
+
+def _clip_duration(clip_path):
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(clip_path)],
+            capture_output=True, text=True, check=True,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def _generate_silence(duration, out_path):
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+        "-t", str(duration), "-c:a", "aac", "-b:a", "48k", str(out_path),
+    ], check=True, capture_output=True)
+
+
+def mix_narration_into_clip(clip_path, narration_text, voice_model, tmp_root):
+    duration = _clip_duration(clip_path) or 5.0
+    voice_name = EDGE_TTS_VOICES.get(voice_model)
+    if not narration_text or not voice_name or not edge_tts:
+        silence = tmp_root / f"{clip_path.stem}-silence.m4a"
+        out = tmp_root / f"{clip_path.stem}-audio.mp4"
+        _generate_silence(duration, silence)
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(clip_path), "-i", str(silence),
+            "-c:v", "copy", "-c:a", "aac", "-map", "0:v", "-map", "1:a",
+            "-shortest", str(out),
+        ], check=True, capture_output=True)
+        silence.unlink(missing_ok=True)
+        return out, None
+    tts = tmp_root / f"{clip_path.stem}-narration.m4a"
+    out = tmp_root / f"{clip_path.stem}-audio.mp4"
+    try:
+        edge_tts.Communicate(narration_text, voice_name).save_sync(str(tts))
+    except Exception as exc:
+        return None, f"edge-tts failed: {exc}"
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(clip_path), "-i", str(tts),
+            "-filter_complex", f"[1:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
+            "-c:v", "copy", "-c:a", "aac", "-map", "0:v", "-map", "[a]",
+            "-shortest", str(out),
+        ], check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        tts.unlink(missing_ok=True)
+        return None, f"ffmpeg mix failed: {exc}"
+    tts.unlink(missing_ok=True)
+    return out, None
+
+
 def create_job_record(user_id, original_filename, config, storyboard_text, ref_images=None):
     settings = load_settings()
     # Pre-planning gate: character count isn't known yet (that's an LLM step
@@ -2437,97 +2517,6 @@ def session_status():
 
 
 import urllib.parse
-import urllib.request
-import json
-import secrets
-
-TIKTOK_CLIENT_KEY = os.environ.get("TIKTOK_CLIENT_KEY", "")
-TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
-TIKTOK_REDIRECT_URI = f"{PUBLIC_BASE_URL}/auth/tiktok/callback" if PUBLIC_BASE_URL else "https://linyan.io/auth/tiktok/callback"
-
-@app.route("/auth/tiktok")
-def tiktok_login():
-    state = secrets.token_urlsafe(16)
-    session['oauth_state'] = state
-    params = {
-        'client_key': TIKTOK_CLIENT_KEY,
-        'response_type': 'code',
-        'scope': 'user.info.basic',
-        'redirect_uri': TIKTOK_REDIRECT_URI,
-        'state': state
-    }
-    url = f"https://www.tiktok.com/v2/auth/authorize/?{urllib.parse.urlencode(params)}"
-    return redirect(url)
-
-@app.route("/auth/tiktok/callback")
-def tiktok_callback():
-    code = request.args.get('code')
-    state = request.args.get('state')
-    error = request.args.get('error')
-    
-    if error:
-        return f"Auth Error: {error}", 400
-    if not code or state != session.get('oauth_state'):
-        return "Invalid state or missing code", 400
-        
-    token_url = "https://open.tiktokapis.com/v2/oauth/token/"
-    data = urllib.parse.urlencode({
-        'client_key': TIKTOK_CLIENT_KEY,
-        'client_secret': TIKTOK_CLIENT_SECRET,
-        'code': code,
-        'grant_type': 'authorization_code',
-        'redirect_uri': TIKTOK_REDIRECT_URI
-    }).encode('utf-8')
-    
-    req = urllib.request.Request(token_url, data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'})
-    try:
-        with urllib.request.urlopen(req) as response:
-            token_data = json.loads(response.read().decode())
-    except Exception as e:
-        return f"Failed to obtain token: {str(e)}", 500
-        
-    access_token = token_data.get('access_token')
-    if not access_token:
-        return "No access token in response", 500
-        
-    # Get user info
-    user_url = "https://open.tiktokapis.com/v2/user/info/?fields=open_id,union_id,avatar_url,display_name"
-    req_user = urllib.request.Request(user_url, headers={'Authorization': f'Bearer {access_token}'})
-    try:
-        with urllib.request.urlopen(req_user) as response:
-            user_info = json.loads(response.read().decode()).get('data', {}).get('user', {})
-    except Exception as e:
-        return f"Failed to fetch user info: {str(e)}", 500
-        
-    open_id = user_info.get('open_id')
-    display_name = user_info.get('display_name', 'TikTok User')
-    if not open_id:
-        return "Failed to get TikTok open_id", 500
-        
-    email = f"{open_id}@tiktok.linyan.io"  # Placeholder email
-    
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-    user = cur.fetchone()
-    
-    if user:
-        user_id = user['id']
-    else:
-        # Create new user
-        import werkzeug.security
-        dummy_hash = werkzeug.security.generate_password_hash(secrets.token_urlsafe(16))
-        cur.execute(
-            "INSERT INTO users (email, password_hash, display_name, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
-            (email, dummy_hash, display_name, now_iso())
-        )
-        user_id = cur.fetchone()['id']
-        db.commit()
-        
-    session["user_id"] = user_id
-    return redirect("/studio")
-
-
 @app.route("/api/auth/signup", methods=["POST"])
 def signup():
     settings = load_settings()
@@ -3318,6 +3307,94 @@ def job_source(job_id):
         "id": row["id"],
         "title": row["title"],
         "config": json.loads(row["params_json"]),
+        "storyboard_text": storyboard_text,
+    })
+
+
+@app.route("/chat")
+@login_required
+def chat_page():
+    """OpenArt-style chat-to-video entry point."""
+    return render_template("chat.html")
+
+
+@app.route("/api/chat", methods=["POST"])
+@login_required
+def chat_create_job():
+    """Turn a free-form chat message into a storyboard and start a render job."""
+    payload = request.get_json(silent=True) or {}
+    message = (payload.get("message") or "").strip()
+    if not message:
+        return jsonify({"error": "Describe the video you want to make."}), 400
+
+    settings = load_settings()
+    raw_config = payload.get("config") or {}
+    # Chat-generated videos default to a short, affordable duration unless the
+    # caller explicitly overrides it. Users can refine/extend in the studio.
+    raw_config.setdefault("target_duration", 3)
+    config = normalize_config(raw_config, settings)
+
+    # Generate a structured prose storyboard from the one-liner.
+    model_id = config.get("planner_model") or settings["default_planner_model"] or "dola-seed-2-1-turbo-260628"
+    system_prompt = "You are a professional storyboard director for short AI-generated videos."
+    user_prompt = f"""Turn the user's idea into a concise prose storyboard suitable for a {config.get('target_duration') or 30}-second video.
+Write 3-5 short scenes as flowing prose paragraphs. Each paragraph should describe one shot: the visual composition, camera movement, and any narration or voice-over line.
+Do NOT output JSON. Output plain prose only, with a short overall title on the first line prefixed by '# '.
+
+User's idea: {message}"""
+
+    req_payload = {
+        "model": model_id,
+        "temperature": 0.7,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    storyboard_text = ""
+    try:
+        body = json.dumps(req_payload).encode("utf-8")
+        req = urllib_request.Request(
+            f"{ARK_API_BASE}/chat/completions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {ARK_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib_request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        storyboard_text = data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        # Fallback: use the user's message directly as the storyboard.
+        storyboard_text = f"# {config['title']}\n\n{message}"
+
+    # Make sure we have a usable storyboard string.
+    if not storyboard_text:
+        storyboard_text = message
+
+    # Auto-title from first line if the user didn't supply one.
+    first_line = storyboard_text.splitlines()[0] if storyboard_text else ""
+    if first_line.startswith("#"):
+        config["title"] = first_line.lstrip("# ").strip() or config["title"]
+    else:
+        config["title"] = config["title"] or (message[:60] + "..." if len(message) > 60 else message)
+
+    job, error_payload = create_job_record(
+        g.current_user["id"],
+        f"{config['title']}.md",
+        config,
+        storyboard_text,
+        ref_images=None,
+    )
+    if error_payload:
+        return jsonify(error_payload), 402
+
+    return jsonify({
+        "success": True,
+        "job": job,
         "storyboard_text": storyboard_text,
     })
 
