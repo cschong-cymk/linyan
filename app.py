@@ -590,7 +590,7 @@ def normalize_config(raw_config, settings):
         "voice_model": raw_config.get("voice_model") or "none",
         "narration_enabled": bool(raw_config.get("narration_enabled")),
         # Smart duration: null/0 means let the planner decide from story length.
-        "target_duration": clamp_int(raw_config.get("target_duration"), 30, 8, 180) if raw_config.get("target_duration") else None,
+        "target_duration": clamp_int(raw_config.get("target_duration"), 30, 3, 180) if raw_config.get("target_duration") else None,
         "planner_temperature": clamp_float(raw_config.get("planner_temperature"), 0.4, 0.0, 1.0),
         "direction_temperature": clamp_float(raw_config.get("direction_temperature"), 0.5, 0.0, 1.0),
         "motion_temperature": clamp_float(raw_config.get("motion_temperature"), 0.5, 0.0, 1.0),
@@ -3329,9 +3329,12 @@ def chat_create_job():
 
     settings = load_settings()
     raw_config = payload.get("config") or {}
-    # Chat-generated videos default to a short, affordable duration unless the
-    # caller explicitly overrides it. Users can refine/extend in the studio.
+    # Chat-generated videos default to a short, affordable config so new users
+    # can try the feature with the signup bonus. Users can refine/extend in the
+    # studio (higher-quality model, auto-preprocessing, longer duration, etc.).
     raw_config.setdefault("target_duration", 3)
+    raw_config.setdefault("video_model", "dreamina-seedance-2-0-fast-260128")
+    raw_config.setdefault("auto_preprocess_prompts", False)
     config = normalize_config(raw_config, settings)
 
     # Generate a structured prose storyboard from the one-liner.
