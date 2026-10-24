@@ -26,6 +26,11 @@ from flask import Flask, g, jsonify, redirect, render_template, request, send_fi
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
+try:
+    from elevenlabs import ElevenLabs
+except Exception:
+    ElevenLabs = None
+
 APP_ROOT = Path(__file__).resolve().parent
 TEMPLATE_DIR = APP_ROOT / "templates"
 DATA_DIR = APP_ROOT / "data"
@@ -179,6 +184,9 @@ MODEL_CATALOG = {
         {"id": "warm-guide", "label": "Warm Guide"},
         {"id": "campaign-voice", "label": "Campaign Voice"},
         {"id": "neutral-briefing", "label": "Neutral Briefing"},
+        {"id": "eleven-rachel", "label": "Rachel (ElevenLabs)"},
+        {"id": "eleven-nova", "label": "Nova (ElevenLabs)"},
+        {"id": "eleven-adam", "label": "Adam (ElevenLabs)"},
     ],
 }
 
@@ -1857,6 +1865,12 @@ def render_shots(job_id, shots, config, character_bible):
     """
     clips = []
     shot_log = []
+    narration_enabled = bool(config.get("narration_enabled"))
+    voice_model = config.get("voice_model")
+    audio_tmp = None
+    if narration_enabled and voice_model and voice_model != "none":
+        audio_tmp = OUTPUT_DIR / f"{job_id}-audio-tmp"
+        audio_tmp.mkdir(exist_ok=True)
 
     for shot in shots:
         clip_path = OUTPUT_DIR / f"{job_id}-shot-{shot['index']:03d}.mp4"
@@ -1869,7 +1883,17 @@ def render_shots(job_id, shots, config, character_bible):
         }
         shot_log.append(entry)
         if ok:
-            clips.append((clip_path, shot["duration"]))
+            final_clip = clip_path
+            if narration_enabled and voice_model and voice_model != "none" and audio_tmp:
+                narrated, narr_err = mix_narration_into_clip(
+                    clip_path, shot.get("narration", ""), voice_model, audio_tmp
+                )
+                if narrated:
+                    final_clip = narrated
+                elif narr_err:
+                    entry["narration_status"] = "failed"
+                    entry["narration_reason"] = narr_err
+            clips.append((final_clip, shot["duration"]))
         else:
             # Log the failure but keep going — partial output is better than nothing
             pass
@@ -2053,6 +2077,89 @@ def mix_music_into_video(video_path, music_path):
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
         tmp_path.unlink(missing_ok=True)
         return False, f"ffmpeg mix failed: {exc}"
+
+
+# ── ElevenLabs narration helpers ────────────────────────────────────────────
+ELEVENLABS_VOICES = {
+    "warm-guide": "JBFqnCBsd6RMkjVDRZzb",       # George - Warm, Captivating Storyteller
+    "campaign-voice": "IKne3meq5aSn9XLyUdCD",  # Charlie - Deep, Confident, Energetic
+    "neutral-briefing": "EXAVITQu4vr4xnSDxMaL", # Sarah - Mature, Reassuring, Confident
+    "eleven-rachel": "21m00Tcm4TlvDq8ikWAM",   # Rachel (default library)
+    "eleven-nova": "Xb7hH8MSUJpSbSDYk0k2",     # Alice - Clear, Engaging Educator
+    "eleven-adam": "pNInz6obpgDQGcFmaJgB",     # Adam (default library)
+}
+
+
+def _clip_duration(clip_path):
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(clip_path)],
+            capture_output=True, text=True, check=True,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def _generate_silence(duration, out_path):
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+        "-t", str(duration), "-c:a", "aac", "-b:a", "48k", str(out_path),
+    ], check=True, capture_output=True)
+
+
+def generate_elevenlabs_narration(text, voice_id, out_path):
+    """Generate narration audio via ElevenLabs. Returns (True, None) or (False, reason)."""
+    if not ELEVENLABS_API_KEY or not ElevenLabs:
+        return False, "ELEVENLABS_API_KEY not set or elevenlabs SDK unavailable"
+    try:
+        client = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
+        audio_iter = client.text_to_speech.convert(text=text, voice_id=voice_id, model_id="eleven_multilingual_v2")
+        audio_bytes = b"".join(audio_iter)
+        out_path.write_bytes(audio_bytes)
+        return True, None
+    except Exception as exc:
+        return False, f"ElevenLabs TTS failed: {exc}"
+
+
+def mix_narration_into_clip(clip_path, narration_text, voice_model, tmp_root):
+    """
+    Mix ElevenLabs narration into a shot clip.
+    Returns (final_clip_path, error_reason). error_reason is None on success.
+    """
+    duration = _clip_duration(clip_path) or 5.0
+    voice_name = ELEVENLABS_VOICES.get(voice_model)
+    tts = tmp_root / f"{clip_path.stem}-narration.m4a"
+    out = tmp_root / f"{clip_path.stem}-audio.mp4"
+
+    if not narration_text or not voice_name:
+        # No narration for this shot or unknown voice — generate silence track.
+        silence = tmp_root / f"{clip_path.stem}-silence.m4a"
+        _generate_silence(duration, silence)
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(clip_path), "-i", str(silence),
+            "-c:v", "copy", "-c:a", "aac", "-map", "0:v", "-map", "1:a",
+            "-shortest", str(out),
+        ], check=True, capture_output=True)
+        silence.unlink(missing_ok=True)
+        return out, None
+
+    ok, reason = generate_elevenlabs_narration(narration_text, voice_name, tts)
+    if not ok:
+        return None, reason
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-i", str(clip_path), "-i", str(tts),
+            "-filter_complex", f"[1:a]apad=pad_dur={duration},atrim=0:{duration}[a]",
+            "-c:v", "copy", "-c:a", "aac", "-map", "0:v", "-map", "[a]",
+            "-shortest", str(out),
+        ], check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        tts.unlink(missing_ok=True)
+        return None, f"ffmpeg mix failed: {exc}"
+    tts.unlink(missing_ok=True)
+    return out, None
 
 
 def create_job_record(user_id, original_filename, config, storyboard_text, ref_images=None):
